@@ -156,7 +156,14 @@ func TodaySales(db *gorm.DB) gin.HandlerFunc {
         var sumCNY float64
         for i := range items {
             rate := rates[items[i].Currency]
-            items[i].CNYAmount = items[i].Sum * rate
+            switch items[i].Currency {
+            case "IDR", "PHP", "MYR":
+                if rate != 0 {
+                    items[i].CNYAmount = items[i].Sum / rate
+                }
+            default:
+                items[i].CNYAmount = items[i].Sum
+            }
             sumCNY += items[i].CNYAmount
         }
         if !showCNY {

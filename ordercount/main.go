@@ -51,8 +51,10 @@ func main() {
         api.GET("/stats/top-products", handlers.TopProducts(gdb))
     }
 
+
     r.StaticFile("/", "frontend/dist/index.html")
-    r.Static("/static", "frontend/dist")
+    r.Static("/assets", "frontend/dist/assets")
+    r.StaticFile("/vite.svg", "frontend/dist/vite.svg")
 
     r.Run(":8080")
 }
