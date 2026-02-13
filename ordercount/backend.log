@@ -1,0 +1,20 @@
+nohup: 忽略输入
+[GIN-debug] [WARNING] Creating an Engine instance with the Logger and Recovery middleware already attached.
+
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] POST   /api/order                --> main.main.PostOrder.func1 (3 handlers)
+[GIN-debug] POST   /api/orders/import        --> main.main.ImportOrders.func2 (3 handlers)
+[GIN-debug] GET    /api/sales/today          --> main.main.TodaySales.func3 (3 handlers)
+[GIN-debug] GET    /api/report/export        --> main.main.ExportReport.func4 (3 handlers)
+[GIN-debug] GET    /api/stats/sales-trend    --> main.main.SalesTrend.func5 (3 handlers)
+[GIN-debug] GET    /api/stats/top-products   --> main.main.TopProducts.func6 (3 handlers)
+[GIN-debug] GET    /                         --> main.main.(*RouterGroup).StaticFile.func7 (3 handlers)
+[GIN-debug] HEAD   /                         --> main.main.(*RouterGroup).StaticFile.func7 (3 handlers)
+[GIN-debug] GET    /static/*filepath         --> github.com/gin-gonic/gin.(*RouterGroup).createStaticHandler.func1 (3 handlers)
+[GIN-debug] HEAD   /static/*filepath         --> github.com/gin-gonic/gin.(*RouterGroup).createStaticHandler.func1 (3 handlers)
+[GIN-debug] [WARNING] You trusted all proxies, this is NOT safe. We recommend you to set a value.
+Please check https://pkg.go.dev/github.com/gin-gonic/gin#readme-don-t-trust-all-proxies for details.
+[GIN-debug] Listening and serving HTTP on :8080
