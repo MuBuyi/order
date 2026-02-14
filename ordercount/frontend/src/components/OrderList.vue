@@ -24,9 +24,32 @@
       <span v-if="loading" style="font-size:12px;color:#909399;">加载中...</span>
     </div>
     <el-table :data="items" size="small" border style="width:100%;">
-      <el-table-column prop="created_at" label="时间" width="170">
+      <el-table-column prop="created_at" label="时间" width="260">
         <template #default="scope">
-          {{ formatTime(scope.row.created_at) }}
+          <template v-if="editingId === scope.row.id">
+            <div style="display:flex;align-items:center;gap:6px;">
+              <el-date-picker
+                v-model="editDate"
+                type="date"
+                placeholder="选择日期"
+                format="YYYY-MM-DD"
+                value-format="YYYY-MM-DD"
+                size="small"
+              />
+              <el-button type="primary" link size="small" @click="onSaveDate(scope.row)">
+                保存
+              </el-button>
+              <el-button link size="small" @click="onCancelEdit">取消</el-button>
+            </div>
+          </template>
+          <template v-else>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <span>{{ formatTime(scope.row.created_at) }}</span>
+              <el-button type="primary" link size="small" @click="onEditDate(scope.row)">
+                修改
+              </el-button>
+            </div>
+          </template>
         </template>
       </el-table-column>
       <el-table-column prop="country" label="国家" width="80" />
@@ -49,6 +72,8 @@ const date = ref('')
 const country = ref('')
 const items = ref([])
 const loading = ref(false)
+const editingId = ref(null)
+const editDate = ref('')
 
 function formatTime(t) {
   if (!t) return ''
@@ -70,6 +95,39 @@ async function load() {
     items.value = []
   } finally {
     loading.value = false
+  }
+}
+
+function onEditDate(row) {
+  if (!row || !row.id) return
+  editingId.value = row.id
+  // 预填当前日期部分，方便修改
+  const t = row.created_at
+  if (t) {
+    const d = new Date(t)
+    if (!Number.isNaN(d.getTime())) {
+      const yyyy = d.getFullYear()
+      const mm = String(d.getMonth() + 1).padStart(2, '0')
+      const dd = String(d.getDate()).padStart(2, '0')
+      editDate.value = `${yyyy}-${mm}-${dd}`
+    }
+  }
+}
+
+function onCancelEdit() {
+  editingId.value = null
+  editDate.value = ''
+}
+
+async function onSaveDate(row) {
+  if (!row || !row.id || !editDate.value) return
+  try {
+    await axios.put(`/api/orders/${row.id}/date`, { date: editDate.value })
+    editingId.value = null
+    editDate.value = ''
+    await load()
+  } catch (e) {
+    // 简单忽略错误，必要时可加提示
   }
 }
 

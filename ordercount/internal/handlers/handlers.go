@@ -281,10 +281,10 @@ func HourlyStats(db *gorm.DB) gin.HandlerFunc {
         rows, err := db.Raw(`
             SELECT HOUR(created_at) as hour, IFNULL(SUM(total_amount),0) as total
             FROM orders
-            WHERE DATE(created_at) = ?
+            WHERE DATE(created_at) = ? AND product_name NOT IN (?, ?)
             GROUP BY hour
             ORDER BY hour
-        `, date).Rows()
+        `, date, "今日总额汇总", "今日总汇").Rows()
         if err != nil {
             c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
             return
@@ -315,9 +315,10 @@ func DailyStats(db *gorm.DB) gin.HandlerFunc {
             SELECT DATE(created_at) as day, IFNULL(SUM(total_amount),0) as total
             FROM orders
             WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+              AND product_name IN (?, ?)
             GROUP BY DATE(created_at)
             ORDER BY DATE(created_at)
-        `, days-1).Rows()
+        `, days-1, "今日总额汇总", "今日总汇").Rows()
         if err != nil {
             c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
             return
@@ -345,9 +346,10 @@ func MonthlyStats(db *gorm.DB) gin.HandlerFunc {
             SELECT MONTH(created_at) as month, IFNULL(SUM(total_amount),0) as total
             FROM orders
             WHERE YEAR(created_at) = ?
+              AND product_name NOT IN (?, ?)
             GROUP BY month
             ORDER BY month
-        `, year).Rows()
+        `, year, "今日总额汇总", "今日总汇").Rows()
         if err != nil {
             c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
             return
@@ -494,15 +496,80 @@ func ListSettlements(db *gorm.DB) gin.HandlerFunc {
     }
 }
 
+// AdDeductionDailyStats 近N天每日广告费折算（默认7天），基于每日结算表 DailySettlement
+func AdDeductionDailyStats(db *gorm.DB) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        daysStr := c.DefaultQuery("days", "7")
+        days, err := strconv.Atoi(daysStr)
+        if err != nil || days < 1 || days > 60 {
+            days = 7
+        }
+
+        rows, err := db.Raw(`
+            SELECT date as day, IFNULL(SUM(ad_deduction),0) as total
+            FROM daily_settlements
+            WHERE date >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+            GROUP BY date
+            ORDER BY date
+        `, days-1).Rows()
+        if err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+            return
+        }
+        defer rows.Close()
+        type Item struct{ Day string; Total float64 }
+        var res []Item
+        for rows.Next() {
+            var it Item
+            rows.Scan(&it.Day, &it.Total)
+            res = append(res, it)
+        }
+        c.JSON(http.StatusOK, res)
+    }
+}
+
+// AdDeductionMonthlyStats 按月统计某年每月广告费折算
+func AdDeductionMonthlyStats(db *gorm.DB) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        year := c.Query("year")
+        if year == "" {
+            year = time.Now().Format("2006")
+        }
+        rows, err := db.Raw(`
+            SELECT MONTH(date) as month, IFNULL(SUM(ad_deduction),0) as total
+            FROM daily_settlements
+            WHERE YEAR(date) = ?
+            GROUP BY month
+            ORDER BY month
+        `, year).Rows()
+        if err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+            return
+        }
+        defer rows.Close()
+        res := make([]float64, 12)
+        for rows.Next() {
+            var month int
+            var total float64
+            rows.Scan(&month, &total)
+            if month >= 1 && month <= 12 {
+                res[month-1] = total
+            }
+        }
+        c.JSON(http.StatusOK, gin.H{"year": year, "monthly": res})
+    }
+}
+
 func TopProducts(db *gorm.DB) gin.HandlerFunc {
     return func(c *gin.Context) {
         rows, err := db.Raw(`
-            SELECT product_name, SUM(total_amount) as total
+            SELECT product_name, SUM(quantity) as total
             FROM orders
+            WHERE product_name NOT IN (?, ?)
             GROUP BY product_name
             ORDER BY total DESC
             LIMIT 10
-        `).Rows()
+        `, "今日总额汇总", "今日总汇").Rows()
         if err != nil {
             c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
             return
@@ -575,6 +642,54 @@ func UpdateOrder(db *gorm.DB) gin.HandlerFunc {
         }
         // 重新查询最新数据返回
         if err := db.First(&o, id).Error; err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+            return
+        }
+        c.JSON(http.StatusOK, o)
+    }
+}
+
+// 单独修改订单日期（用于补录订单时调整统计日期）
+func UpdateOrderDate(db *gorm.DB) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        idStr := c.Param("id")
+        id, err := strconv.Atoi(idStr)
+        if err != nil || id <= 0 {
+            c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+            return
+        }
+
+        var body struct {
+            Date string `json:"date"`
+        }
+        if err := c.ShouldBindJSON(&body); err != nil {
+            c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+            return
+        }
+        if body.Date == "" {
+            c.JSON(http.StatusBadRequest, gin.H{"error": "date required"})
+            return
+        }
+
+        // 仅按日期调整，时间统一设为 00:00:00，当天统计按 DATE(created_at) 即可
+        t, err := time.Parse("2006-01-02", body.Date)
+        if err != nil {
+            c.JSON(http.StatusBadRequest, gin.H{"error": "invalid date format, want YYYY-MM-DD"})
+            return
+        }
+
+        var o models.Order
+        if err := db.First(&o, id).Error; err != nil {
+            if err == gorm.ErrRecordNotFound {
+                c.JSON(http.StatusNotFound, gin.H{"error": "order not found"})
+                return
+            }
+            c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+            return
+        }
+
+        o.CreatedAt = t
+        if err := db.Save(&o).Error; err != nil {
             c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
             return
         }

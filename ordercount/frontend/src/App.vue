@@ -1,15 +1,15 @@
 <template>
   <Login v-if="!currentUser" @logged-in="onLoggedIn" />
-  <el-container v-else style="min-height:100vh;">
-    <el-header style="background:#409EFF;color:#fff;font-size:22px;display:flex;align-items:center;">
+  <el-container v-else style="height:100%;">
+		<el-header class="layout-header" style="background:#409EFF;color:#fff;font-size:22px;display:flex;align-items:center;">
       <span style="font-size:22px;flex:1;">订单统计管理后台</span>
       <div v-if="currentUser" style="font-size:14px;display:flex;align-items:center;gap:10px;">
         <span>当前用户：{{ currentUser.username }}</span>
         <el-button size="small" type="danger" @click="onLogout">退出登录</el-button>
       </div>
     </el-header>
-    <el-container>
-      <el-aside width="200px" style="background:#fff;border-right:1px solid #ebeef5;">
+    <el-container style="height:100%;">
+      <el-aside class="layout-aside" width="200px" style="background:#fff;border-right:1px solid #ebeef5;">
         <el-menu :default-active="activeMenu" @select="onSelect" router="false">
           <el-menu-item index="stats">订单统计</el-menu-item>
           <el-menu-item v-if="canSeeSettlement" index="settlement">结账工具</el-menu-item>
@@ -17,7 +17,7 @@
           <el-menu-item v-if="isSuperAdmin" index="users">用户管理</el-menu-item>
         </el-menu>
       </el-aside>
-      <el-main>
+      <el-main class="layout-main">
         <ExchangeRatesBar style="margin-bottom:10px;" />
 
         <!-- 订单统计视图 -->

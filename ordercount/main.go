@@ -64,10 +64,13 @@ func main() {
         api.GET("/report/export", handlers.ExportReport(gdb))
         api.GET("/stats/sales-trend", handlers.SalesTrend(gdb))
         api.GET("/stats/top-products", handlers.TopProducts(gdb))
+        api.GET("/stats/ad-deduction/daily", handlers.AdDeductionDailyStats(gdb))
+        api.GET("/stats/ad-deduction/monthly", handlers.AdDeductionMonthlyStats(gdb))
 		api.POST("/settlement", handlers.SaveSettlement(gdb))
 		api.GET("/settlements", handlers.ListSettlements(gdb))
         api.GET("/orders", handlers.ListOrders(gdb))
         api.PUT("/orders/:id", handlers.UpdateOrder(gdb))
+        api.PUT("/orders/:id/date", handlers.UpdateOrderDate(gdb))
         api.DELETE("/orders/:id", handlers.DeleteOrder(gdb))
 
         // 商品管理（需登录）

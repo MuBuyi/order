@@ -15,17 +15,14 @@
           </el-form-item>
         </el-col>
         <el-col :span="12">
-          <el-form-item label="汇率模式">
-            <el-switch
-              v-model="autoFollowRate"
-              active-text="自动跟随实时汇率"
-              inactive-text="手动输入并锁定"
-            />
-          </el-form-item>
-        </el-col>
-        <el-col :span="12">
           <el-form-item label="当天销售总额">
-            <el-input-number v-model="saleTotal" :min="0" :step="0.01" style="width:100%;" />
+            <el-input-number
+              v-model="saleTotal"
+              :min="0"
+              :step="0.01"
+              style="width:100%;"
+              :disabled="true"
+            />
           </el-form-item>
         </el-col>
         <el-col :span="12">
@@ -34,6 +31,23 @@
           </el-form-item>
         </el-col>
 
+        <el-col :span="12">
+          <el-form-item label="货款成本">
+            <el-input-number
+              v-model="goodsCost"
+              :min="0"
+              :step="0.01"
+              style="width:100%;"
+              :disabled="true"
+            />
+          </el-form-item>
+        </el-col>
+
+        <el-col :span="12">
+          <el-form-item label="刷单费用">
+            <el-input-number v-model="shuaDanFee" :min="0" :step="0.01" style="width:100%;" />
+          </el-form-item>
+        </el-col>
         <el-col :span="12">
           <el-form-item label="对应汇率">
             <el-input-number
@@ -46,19 +60,17 @@
           </el-form-item>
         </el-col>
         <el-col :span="12">
-          <el-form-item label="货款成本">
-            <el-input-number v-model="goodsCost" :min="0" :step="0.01" style="width:100%;" />
-          </el-form-item>
-        </el-col>
-
-        <el-col :span="12">
-          <el-form-item label="刷单费用">
-            <el-input-number v-model="shuaDanFee" :min="0" :step="0.01" style="width:100%;" />
-          </el-form-item>
-        </el-col>
-        <el-col :span="12">
           <el-form-item label="固定成本">
             <el-input-number v-model="fixedCost" :min="0" :step="0.01" style="width:100%;" />
+          </el-form-item>
+        </el-col>
+        <el-col :span="12">
+          <el-form-item label="汇率模式">
+            <el-switch
+              v-model="autoFollowRate"
+              active-text="自动跟随实时汇率"
+              inactive-text="手动输入并锁定"
+            />
           </el-form-item>
         </el-col>
         <el-col :span="24">
@@ -104,11 +116,35 @@
         </span>
       </el-descriptions-item>
     </el-descriptions>
+
+    <el-divider />
+
+    <div style="margin-top:10px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+        <span style="font-size:14px;">广告费折算趋势</span>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <el-radio-group v-model="trendMode" size="small">
+            <el-radio-button label="daily">近7天</el-radio-button>
+            <el-radio-button label="monthly">按月</el-radio-button>
+          </el-radio-group>
+          <el-date-picker
+            v-if="trendMode === 'monthly'"
+            v-model="trendYear"
+            type="year"
+            size="small"
+            value-format="YYYY"
+            placeholder="选择年份"
+          />
+        </div>
+      </div>
+      <div ref="adTrendRef" style="height:260px;width:100%;"></div>
+    </div>
   </el-card>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
+import * as echarts from 'echarts'
 import axios from 'axios'
 
 // 国家与币种映射
@@ -118,8 +154,8 @@ const countryCurrencyMap = {
   '马来西亚': 'MYR',
 }
 
-// 当前选择的国家和币种
-const country = ref('')
+// 当前选择的国家和币种（默认印尼）
+const country = ref('印尼')
 const currentCurrency = ref('')
 
 // 当天销售总额
@@ -132,8 +168,8 @@ const exchangeRate = ref(1)
 const goodsCost = ref(0)
 // 刷单费用（默认 0）
 const shuaDanFee = ref(0)
-// 固定成本（给一个默认值，可按需调整）
-const fixedCost = ref(1000)
+// 固定成本（默认 110，可按需调整）
+const fixedCost = ref(110)
 
 // 备注
 const remark = ref('')
@@ -147,6 +183,12 @@ const rates = ref({ PHP: 0, IDR: 0, MYR: 0 })
 const saving = ref(false)
 const saveMsg = ref('')
 const saveOk = ref(false)
+
+const adTrendRef = ref(null)
+let adTrendChart
+
+const trendMode = ref('daily') // daily: 近7天, monthly: 按月
+const trendYear = ref(new Date().getFullYear().toString())
 
 async function loadRates() {
   try {
@@ -175,7 +217,81 @@ function onCountryChange(val) {
   }
 }
 
-onMounted(loadRates)
+async function loadTodayGoodsCost () {
+  try {
+    const res = await axios.get('/api/costs/today')
+    goodsCost.value = res.data?.total_cost || 0
+  } catch (e) {
+    // 失败时保持手动输入的值
+  }
+}
+
+onMounted(() => {
+  loadRates()
+  loadTodayGoodsCost()
+  loadTodaySales()
+		loadAdTrend()
+})
+
+async function loadTodaySales () {
+  try {
+    const res = await axios.get('/api/sales/today')
+    saleTotal.value = res.data?.total_amount || 0
+  } catch (e) {
+    // 失败时保持手动输入的值
+  }
+}
+
+async function loadAdTrend () {
+  try {
+    if (trendMode.value === 'daily') {
+      const res = await axios.get('/api/stats/ad-deduction/daily', { params: { days: 7 } })
+      const data = Array.isArray(res.data) ? res.data : []
+      const labels = data.map(i => (i.Day || '').split('T')[0] || i.Day || '')
+      const values = data.map(i => Number(i.Total || 0))
+      renderAdTrendChart(labels, values, '近7天广告费折算（人民币）')
+    } else {
+      const year = trendYear.value || new Date().getFullYear().toString()
+      const res = await axios.get('/api/stats/ad-deduction/monthly', { params: { year } })
+      const months = Array.from({ length: 12 }, (_, i) => `${i + 1}月`)
+      const values = Array.isArray(res.data?.monthly) ? res.data.monthly : []
+      renderAdTrendChart(months, months.map((_, idx) => Number(values[idx] || 0)), `按月广告费折算（${year}）`)
+    }
+  } catch (e) {
+    renderAdTrendChart([], [], '广告费数据加载失败')
+  }
+}
+
+function renderAdTrendChart (labels, values, title) {
+  if (!adTrendChart && adTrendRef.value) {
+    adTrendChart = echarts.init(adTrendRef.value)
+  }
+  if (!adTrendChart) return
+
+  adTrendChart.setOption({
+    title: { text: title, left: 'center' },
+    tooltip: { trigger: 'axis' },
+    xAxis: { type: 'category', data: labels },
+    yAxis: { type: 'value' },
+    series: [{
+      type: 'bar',
+      data: values,
+      label: { show: true, position: 'top' },
+      itemStyle: { color: '#E6A23C' }
+    }]
+  })
+  adTrendChart.resize()
+}
+
+watch(trendMode, () => {
+  loadAdTrend()
+})
+
+watch(trendYear, () => {
+  if (trendMode.value === 'monthly') {
+    loadAdTrend()
+  }
+})
 
 async function onSave() {
   saveMsg.value = ''

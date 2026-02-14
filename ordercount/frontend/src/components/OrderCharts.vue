@@ -3,18 +3,9 @@
     <template #header>数据可视化图表</template>
     <div style="margin-bottom:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
       <el-radio-group v-model="mode" size="small">
-        <el-radio-button label="hourly">按小时</el-radio-button>
         <el-radio-button label="daily">近7天</el-radio-button>
         <el-radio-button label="monthly">按月</el-radio-button>
       </el-radio-group>
-      <el-date-picker
-        v-if="mode === 'hourly'"
-        v-model="selectedDate"
-        type="date"
-        size="small"
-        value-format="YYYY-MM-DD"
-        placeholder="选择日期"
-      />
       <el-date-picker
         v-if="mode === 'monthly'"
         v-model="selectedYear"
@@ -39,8 +30,7 @@ const topRef = ref(null)
 let trendChart
 let topChart
 
-const mode = ref('daily') // daily: 近7天, hourly: 按小时, monthly: 按月
-const selectedDate = ref('')
+const mode = ref('daily') // daily: 近7天, monthly: 按月
 const selectedYear = ref('')
 
 function formatDate(d) {
@@ -52,9 +42,6 @@ function formatDate(d) {
 
 function initDefaultDates() {
   const now = new Date()
-  if (!selectedDate.value) {
-    selectedDate.value = formatDate(now)
-  }
   if (!selectedYear.value) {
     selectedYear.value = String(now.getFullYear())
   }
@@ -97,7 +84,12 @@ function renderTop(data) {
       title: { text: '商品销售排行', left: 'center' },
       xAxis: { type: 'category', data: data.map(i => i.ProductName) },
       yAxis: { type: 'value' },
-      series: [{ type: 'bar', data: data.map(i => i.Total), itemStyle: { color: '#67C23A' } }]
+      series: [{
+        type: 'bar',
+        data: data.map(i => i.Total),
+        itemStyle: { color: '#67C23A' },
+        label: { show: true, position: 'top' }
+      }]
     })
     topChart.resize()
   })
@@ -106,20 +98,7 @@ function renderTop(data) {
 async function loadTrend() {
   initDefaultDates()
   try {
-    if (mode.value === 'hourly') {
-      const date = selectedDate.value || formatDate(new Date())
-      const res = await axios.get('/api/stats/hourly', { params: { date } })
-      const hours = Array.from({ length: 24 }, (_, i) => `${i}:00`)
-      const values = Array.isArray(res.data) ? res.data : []
-      const seriesData = hours.map((_, idx) => Number(values[idx] || 0))
-      renderTrend({
-        title: { text: `按小时销售金额（${date}）`, left: 'center' },
-        tooltip: { trigger: 'axis' },
-        xAxis: { type: 'category', data: hours },
-        yAxis: { type: 'value' },
-        series: [{ type: 'line', smooth: true, data: seriesData, areaStyle: {} }]
-      })
-    } else if (mode.value === 'daily') {
+    if (mode.value === 'daily') {
       const res = await axios.get('/api/stats/daily', { params: { days: 7 } })
       const data = Array.isArray(res.data) ? res.data : []
       const labels = data.map(i => (i.Day || '').split('T')[0] || i.Day || '')
@@ -129,7 +108,13 @@ async function loadTrend() {
         tooltip: { trigger: 'axis' },
         xAxis: { type: 'category', data: labels },
         yAxis: { type: 'value' },
-        series: [{ type: 'line', smooth: true, data: values, areaStyle: {} }]
+        series: [{
+          type: 'line',
+          smooth: true,
+          data: values,
+          areaStyle: {},
+          label: { show: true, position: 'top' }
+        }]
       })
     } else if (mode.value === 'monthly') {
       const year = selectedYear.value || String(new Date().getFullYear())
@@ -142,7 +127,13 @@ async function loadTrend() {
         tooltip: { trigger: 'axis' },
         xAxis: { type: 'category', data: months },
         yAxis: { type: 'value' },
-        series: [{ type: 'line', smooth: true, data: seriesData, areaStyle: {} }]
+        series: [{
+          type: 'line',
+          smooth: true,
+          data: seriesData,
+          areaStyle: {},
+          label: { show: true, position: 'top' }
+        }]
       })
     }
   } catch (e) {
@@ -170,12 +161,6 @@ function load() {
 
 watch(mode, () => {
   loadTrend()
-})
-
-watch(selectedDate, () => {
-  if (mode.value === 'hourly') {
-    loadTrend()
-  }
 })
 
 watch(selectedYear, () => {
