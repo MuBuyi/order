@@ -1,64 +1,31 @@
 package handlers
 
 import (
-	"encoding/json"
 	"net/http"
-	"sync"
-	"time"
+
+	"github.com/gin-gonic/gin"
+	exch "ordercount/internal/utils"
 )
 
-var (
-	ratesCache struct {
-		sync.Mutex
-		Rates map[string]float64
-		Last time.Time
-	}
-)
-
-// 获取最新汇率（PHP/IDR/MYR->CNY），缓存10分钟
-func GetRates() (map[string]float64, error) {
-	ratesCache.Lock()
-	defer ratesCache.Unlock()
-	if ratesCache.Rates != nil && time.Since(ratesCache.Last) < 10*time.Minute {
-		return ratesCache.Rates, nil
-	}
-	resp, err := http.Get("https://api.exchangerate.host/latest?base=CNY&symbols=PHP,IDR,MYR")
+// 对外汇率接口：返回主要币种相对人民币的汇率（1 单位外币 = ? 人民币）
+// GET /api/exchange/rates
+func ExchangeRates(c *gin.Context) {
+	rates, err := exch.GetRates()
 	if err != nil {
-		return nil, err
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
 	}
-	defer resp.Body.Close()
-	var data struct {
-		Rates map[string]float64 `json:"rates"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return nil, err
-	}
-	// 汇率为 1 CNY = ? 目标币，需取倒数
-	conv := map[string]float64{}
-	for k, v := range data.Rates {
-		if v > 0 {
-			conv[k] = 1 / v
-		}
-	}
-	// CNY->CNY
-	conv["CNY"] = 1
-	// 缓存
-	ratesCache.Rates = conv
-	ratesCache.Last = time.Now()
-	return conv, nil
-}
 
-// 获取币种对应的中文
-func CurrencyName(cur string) string {
-	switch cur {
-	case "PHP":
-		return "菲律宾比索"
-	case "IDR":
-		return "印尼盾"
-	case "MYR":
-		return "马来西亚林吉特"
-	case "CNY":
-		return "人民币"
+	// 补充中文名称，方便前端展示
+	labels := map[string]string{
+		"PHP": exch.CurrencyName("PHP"),
+		"IDR": exch.CurrencyName("IDR"),
+		"MYR": exch.CurrencyName("MYR"),
+		"CNY": exch.CurrencyName("CNY"),
 	}
-	return cur
+
+	c.JSON(http.StatusOK, gin.H{
+		"rates":  rates,
+		"labels": labels,
+	})
 }
