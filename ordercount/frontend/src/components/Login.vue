@@ -20,9 +20,6 @@
           <div class="login-msg-wrapper" v-if="msg">
             <span class="login-msg" :class="{ error: !ok }">{{ msg }}</span>
           </div>
-          <div class="login-hint">
-            默认账户：超级管理员 root / root123；管理员 admin / admin123（建议登录后尽快修改密码）
-          </div>
         </el-form>
       </el-card>
     </div>
@@ -146,13 +143,6 @@ async function onLogin() {
 
 .login-msg.error {
   color: #f56c6c;
-}
-
-.login-hint {
-  margin-top: 4px;
-  font-size: 12px;
-  color: #909399;
-  line-height: 1.5;
 }
 
 @keyframes float-bg {

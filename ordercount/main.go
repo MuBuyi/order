@@ -57,6 +57,7 @@ func main() {
         // 注意这里的路径需要以斜杠开头，才能匹配 /api/users/:id/role 这样的请求
         users.PUT("/:id/role", handlers.UpdateUserRole(gdb))
         users.PUT("/:id/permissions", handlers.UpdateUserPermissions(gdb))
+        users.PUT("/:id/password", handlers.UpdateUserPassword(gdb))
 
         api.POST("/order", handlers.PostOrder(gdb))
         api.GET("/sales/today", handlers.TodaySales(gdb))

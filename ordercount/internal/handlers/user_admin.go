@@ -221,3 +221,51 @@ func UpdateUserRole(db *gorm.DB) gin.HandlerFunc {
         c.JSON(http.StatusOK, gin.H{"ok": true})
     }
 }
+
+// UpdateUserPassword 更新用户密码（仅超级管理员）
+func UpdateUserPassword(db *gorm.DB) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        idStr := c.Param("id")
+        id, err := strconv.Atoi(idStr)
+        if err != nil || id <= 0 {
+            c.JSON(http.StatusBadRequest, gin.H{"error": "无效的用户ID"})
+            return
+        }
+
+        var body struct {
+            Password string `json:"password"`
+        }
+        if err := c.ShouldBindJSON(&body); err != nil {
+            c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+            return
+        }
+        if strings.TrimSpace(body.Password) == "" {
+            c.JSON(http.StatusBadRequest, gin.H{"error": "新密码不能为空"})
+            return
+        }
+
+        var user models.User
+        if err := db.First(&user, id).Error; err != nil {
+            if err == gorm.ErrRecordNotFound {
+                c.JSON(http.StatusNotFound, gin.H{"error": "用户不存在"})
+            } else {
+                c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+            }
+            return
+        }
+
+        hash, err := bcrypt.GenerateFromPassword([]byte(body.Password), bcrypt.DefaultCost)
+        if err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": "密码加密失败"})
+            return
+        }
+
+        user.PasswordHash = string(hash)
+        if err := db.Save(&user).Error; err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+            return
+        }
+
+        c.JSON(http.StatusOK, gin.H{"ok": true})
+    }
+}

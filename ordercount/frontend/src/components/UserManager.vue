@@ -15,7 +15,7 @@
         </el-col>
         <el-col :span="6">
           <el-form-item label="密码">
-            <el-input v-model="form.password" type="password" placeholder="登录密码" />
+            <el-input v-model="form.password" type="password" show-password placeholder="登录密码" />
           </el-form-item>
         </el-col>
         <el-col :span="6">
@@ -68,7 +68,26 @@
         </template>
       </el-table-column>
       <el-table-column prop="created_at" label="创建时间" width="180" />
+      <el-table-column label="操作" width="140">
+        <template #default="scope">
+          <el-button type="primary" link size="small" @click="onResetPwd(scope.row)">
+            修改密码
+          </el-button>
+        </template>
+      </el-table-column>
     </el-table>
+
+    <el-dialog v-model="pwdDialogVisible" :title="`修改密码 - ${pwdForm.username}`" width="400px">
+      <el-form :model="pwdForm" label-width="80px">
+        <el-form-item label="新密码">
+          <el-input v-model="pwdForm.password" type="password" show-password autocomplete="off" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="pwdDialogVisible = false">取 消</el-button>
+        <el-button type="primary" @click="onConfirmPwd">确 定</el-button>
+      </template>
+    </el-dialog>
   </el-card>
 </template>
 
@@ -87,6 +106,8 @@ const users = ref([])
 const form = ref({ username: '', password: '', role: 'staff', permissions: [] })
 const msg = ref('')
 const ok = ref(true)
+const pwdDialogVisible = ref(false)
+const pwdForm = ref({ id: null, username: '', password: '' })
 
 async function loadUsers() {
   const res = await axios.get('/api/users')
@@ -142,6 +163,38 @@ async function onPermChange(row, vals) {
     msg.value = (e && e.response && e.response.data && e.response.data.error) || '更新权限失败'
     ok.value = false
     loadUsers()
+  }
+}
+
+function onResetPwd(row) {
+  if (!row || !row.id) return
+  pwdForm.value = { id: row.id, username: row.username, password: '' }
+  pwdDialogVisible.value = true
+}
+
+async function onConfirmPwd() {
+  msg.value = ''
+  ok.value = true
+  if (!pwdForm.value.password) {
+    msg.value = '请填写新密码'
+    ok.value = false
+    return
+  }
+  try {
+    await axios.put(`/api/users/${pwdForm.value.id}/password`, {
+      password: pwdForm.value.password,
+    })
+    msg.value = '密码已更新'
+    ok.value = true
+    pwdDialogVisible.value = false
+    pwdForm.value = { id: null, username: '', password: '' }
+  } catch (e) {
+    ok.value = false
+    if (e && e.response && e.response.data && e.response.data.error) {
+      msg.value = e.response.data.error
+    } else {
+      msg.value = '更新密码失败，请稍后重试'
+    }
   }
 }
 
