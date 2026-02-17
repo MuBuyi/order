@@ -1,6 +1,8 @@
 <template>
+
   <Login v-if="!currentUser" @logged-in="onLoggedIn" />
-  <el-container v-else style="height:100%;">
+  <!-- 主布局使用整屏高度，配合左侧菜单冻结 -->
+  <el-container v-else style="height:100vh;">
 		<el-header class="layout-header" style="background:#409EFF;color:#fff;font-size:22px;display:flex;align-items:center;">
       <span style="font-size:22px;flex:1;">订单统计管理后台</span>
       <div v-if="currentUser" style="font-size:14px;display:flex;align-items:center;gap:10px;">
@@ -14,6 +16,7 @@
           <el-menu-item index="stats">订单统计</el-menu-item>
           <el-menu-item v-if="canSeeSettlement" index="settlement">结账工具</el-menu-item>
           <el-menu-item v-if="canSeeProduct" index="product">商品管理</el-menu-item>
+          <el-menu-item v-if="canSeeShop" index="shop">店铺管理</el-menu-item>
           <el-menu-item v-if="isSuperAdmin" index="users">用户管理</el-menu-item>
         </el-menu>
       </el-aside>
@@ -39,12 +42,17 @@
         <!-- 结账工具视图（根据权限控制） -->
         <template v-else-if="activeMenu === 'settlement' && canSeeSettlement">
           <ProfitTool />
-          <SettlementList />
+          <SettlementList :current-user="currentUser" />
         </template>
 
         <!-- 商品管理视图（根据权限控制；编辑权限由内部控制） -->
         <template v-else-if="activeMenu === 'product' && canSeeProduct">
           <ProductManager :current-user="currentUser" />
+        </template>
+
+        <!-- 店铺管理视图（根据权限控制） -->
+        <template v-else-if="activeMenu === 'shop' && canSeeShop">
+          <ShopManager :current-user="currentUser" />
         </template>
 
         <!-- 用户管理视图（仅超级管理员可见） -->
@@ -68,6 +76,7 @@ import ExchangeRatesBar from './components/ExchangeRatesBar.vue'
 import SettlementList from './components/SettlementList.vue'
 import OrderList from './components/OrderList.vue'
 import ProductManager from './components/ProductManager.vue'
+import ShopManager from './components/ShopManager.vue'
 import Login from './components/Login.vue'
 import UserManager from './components/UserManager.vue'
 
@@ -102,6 +111,7 @@ function hasPerm(key) {
 
 const canSeeSettlement = computed(() => isSuperAdmin.value || hasPerm('settlement'))
 const canSeeProduct = computed(() => isSuperAdmin.value || hasPerm('product'))
+const canSeeShop = computed(() => isSuperAdmin.value || hasPerm('shop'))
 
 // 记住上次选中的菜单，刷新后保持在同一页面
 const ACTIVE_MENU_STORAGE_KEY = 'ordercount-active-menu'
@@ -114,6 +124,7 @@ const activeMenu = ref(savedMenu || 'stats')
 if (currentUser.value && (
   (!canSeeSettlement.value && activeMenu.value === 'settlement') ||
   (!canSeeProduct.value && activeMenu.value === 'product') ||
+  (!canSeeShop.value && activeMenu.value === 'shop') ||
   (!isSuperAdmin.value && activeMenu.value === 'users')
 )) {
   activeMenu.value = 'stats'
@@ -134,6 +145,11 @@ function onSelect(key) {
     activeMenu.value = 'stats'
     return
   }
+  // 无店铺管理权限的用户禁止切换到店铺管理
+  if (!canSeeShop.value && key === 'shop') {
+    activeMenu.value = 'stats'
+    return
+  }
   // 非超级管理员禁止进入用户管理
   if (!isSuperAdmin.value && key === 'users') {
     activeMenu.value = 'stats'
@@ -149,6 +165,7 @@ function onLoggedIn(user) {
 	currentUser.value = user
 	// 登录后根据角色调整当前菜单
   if ((!canSeeSettlement.value && activeMenu.value === 'settlement') ||
+  (!canSeeShop.value && activeMenu.value === 'shop') ||
       (!isSuperAdmin.value && activeMenu.value === 'users')) {
     activeMenu.value = 'stats'
     if (typeof window !== 'undefined') {
@@ -170,8 +187,24 @@ function onLogout() {
 </script>
 
 <style>
+html, body, #app {
+  height: 100%;
+}
+
 body {
   margin: 0;
   background: #f5f7fa;
+}
+
+/* 冻结左侧菜单栏：占满视口高度，内部滚动 */
+.layout-aside {
+  height: 100vh;
+  overflow-y: auto;
+}
+
+/* 右侧内容区域随页面滚动，保持与左侧同高 */
+.layout-main {
+  height: 100vh;
+  overflow-y: auto;
 }
 </style>

@@ -11,6 +11,28 @@ if (savedToken) {
 	axios.defaults.headers.common.Authorization = `Bearer ${savedToken}`
 }
 
+// 全局响应拦截：遇到 401 自动退出登录并回到登录页
+axios.interceptors.response.use(
+	(response) => response,
+	(error) => {
+		const { response, config } = error || {}
+		// 登录接口本身的 401 交给页面自己处理
+		if (response && response.status === 401 && !(config && config.url && config.url.includes('/api/login'))) {
+			const USER_KEY = 'ordercount-user'
+			if (typeof window !== 'undefined') {
+				window.localStorage.removeItem(TOKEN_KEY)
+				window.localStorage.removeItem(USER_KEY)
+			}
+			delete axios.defaults.headers.common.Authorization
+			// 简单粗暴刷新页面，回到登录界面
+			if (typeof window !== 'undefined') {
+				window.location.reload()
+			}
+		}
+		return Promise.reject(error)
+	},
+)
+
 const app = createApp(App)
 app.use(ElementPlus)
 app.mount('#app')

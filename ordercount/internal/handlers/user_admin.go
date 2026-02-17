@@ -21,6 +21,7 @@ var allowedRoles = map[string]bool{
 var allowedPerms = map[string]bool{
     "settlement": true,
     "product":    true,
+    "shop":       true,
 }
 
 // ListUsers 列出所有用户（仅超级管理员）

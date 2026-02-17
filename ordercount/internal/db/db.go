@@ -17,7 +17,7 @@ func InitDB(dsn string) (*gorm.DB, error) {
     }
 
     // 自动迁移（User 表已手工迁移，避免索引兼容性问题，这里不再自动迁移 User）
-    if err := db.AutoMigrate(&models.Order{}, &models.DailySettlement{}, &models.Product{}); err != nil {
+    if err := db.AutoMigrate(&models.Order{}, &models.DailySettlement{}, &models.Product{}, &models.Store{}, &models.StoreUser{}); err != nil {
         return nil, err
     }
 
@@ -37,7 +37,7 @@ func InitDB(dsn string) (*gorm.DB, error) {
             Username:     "root",
             PasswordHash: string(rootHash),
             Role:         "superadmin",
-            Permissions:  "settlement,product",
+            Permissions:  "settlement,product,shop",
         }
         // 管理员，默认拥有结账工具和商品管理权限
         adminPwd := "admin123"
@@ -49,7 +49,7 @@ func InitDB(dsn string) (*gorm.DB, error) {
             Username:     "admin",
             PasswordHash: string(adminHash),
             Role:         "admin",
-            Permissions:  "settlement,product",
+            Permissions:  "settlement,product,shop",
         }
         if err := db.Create(&root).Error; err != nil {
             return nil, err

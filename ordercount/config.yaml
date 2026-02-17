@@ -1,2 +1,19 @@
 mysql:
   dsn: "appuser:app123456@tcp(127.0.0.1:3306)/ordercount?charset=utf8mb4&parseTime=True&loc=Local"
+
+wecom:
+  # 企业微信机器人完整 webhook URL，例如：
+  # "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxxxxx"
+  webhook: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=11e41a52-234d-456d-b105-3d8df6aa1f32"
+  # 每天自动推送【订单日报】的时间，24 小时制，格式 HH:MM，例如 "05:00" 表示每天早上 5 点（北京时间）
+  push_time: "05:00"
+  # 每天自动推送【结算工具-每日结算利润汇总】的时间，24 小时制，格式 HH:MM，例如 "00:00" 表示每天 0 点（北京时间）
+  settlement_push_time: "00:00"
+
+ai:
+  # 豆包大模型 API Key（建议通过环境变量 DOUBAO_API_KEY 配置，这里可留空）
+  doubao_api_key: "d6b64d73-7ac4-4335-a45b-752fc70fc9e3"
+  # 豆包 Responses 接口地址
+  doubao_endpoint: "https://ark.cn-beijing.volces.com/api/v3/responses"
+  # 豆包模型名称
+  doubao_model: "doubao-seed-2-0-pro-260215"

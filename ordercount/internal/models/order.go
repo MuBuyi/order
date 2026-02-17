@@ -6,6 +6,8 @@ import "time"
 // 增加币种字段
 type Order struct {
     ID          uint      `gorm:"primaryKey" json:"id"`
+    // 记录这条订单由哪个登录用户录入，便于按用户区分可见范围
+    UserID      uint      `json:"user_id" gorm:"index"`
     Country     string    `json:"country" gorm:"size:20;check:country IN ('菲律宾','印尼','马来西亚')"`
     Platform    string    `json:"platform" gorm:"size:100"`
     OrderNo     string    `json:"order_no" gorm:"size:200;index"`

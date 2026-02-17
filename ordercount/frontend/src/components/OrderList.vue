@@ -45,9 +45,6 @@
           <template v-else>
             <div style="display:flex;align-items:center;gap:6px;">
               <span>{{ formatTime(scope.row.created_at) }}</span>
-              <el-button type="primary" link size="small" @click="onEditDate(scope.row)">
-                修改
-              </el-button>
             </div>
           </template>
         </template>

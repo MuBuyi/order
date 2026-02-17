@@ -77,6 +77,7 @@
             <el-upload
               class="product-uploader"
               action="/api/products/upload"
+              :headers="uploadHeaders"
               :show-file-list="false"
               :on-success="onUploadSuccess"
               :on-error="onUploadError"
@@ -205,7 +206,13 @@
           </template>
           <template v-else>
             <el-button type="primary" link size="small" @click="onEditClick(scope.row)">编辑</el-button>
-            <el-button type="danger" link size="small" @click="onDelete(scope.row)">删除</el-button>
+            <el-button
+              v-if="isSuperAdmin"
+              type="danger"
+              link
+              size="small"
+              @click="onDelete(scope.row)"
+            >删除</el-button>
           </template>
         </template>
       </el-table-column>
@@ -236,17 +243,25 @@ const msgOk = ref(false)
 const editingProductId = ref(null)
 const editingProduct = ref({ id: 0, sku: '', name: '', cost: '', cost_admin: '', cost_staff: '' })
 
+const TOKEN_KEY = 'ordercount-token'
+
+const uploadHeaders = computed(() => {
+  if (typeof window === 'undefined') return {}
+  const token = window.localStorage.getItem(TOKEN_KEY)
+  return token ? { Authorization: `Bearer ${token}` } : {}
+})
+
 const isSuperAdmin = computed(() => props.currentUser && props.currentUser.role === 'superadmin')
 const isAdmin = computed(() => props.currentUser && props.currentUser.role === 'admin')
 const isStaff = computed(() => props.currentUser && props.currentUser.role === 'staff')
 // 所有角色都能看到“自己角色对应的成本”
 const canViewCost = computed(() => true)
 // 只有管理员或超级管理员可以维护成本
-const canEditCost = computed(() => isSuperAdmin.value || isAdmin.value || !props.currentUser)
-// 员工/管理员/超级管理员都可以新增商品
-const canCreateProducts = computed(() => isSuperAdmin.value || isAdmin.value || isStaff.value || !props.currentUser)
-// 只有管理员或超级管理员可以编辑/删除商品
-const canManageProducts = computed(() => isSuperAdmin.value || isAdmin.value || !props.currentUser)
+const canEditCost = computed(() => isSuperAdmin.value || isAdmin.value)
+// 仅超级管理员和管理员可以新增商品
+const canCreateProducts = computed(() => isSuperAdmin.value || isAdmin.value)
+// 仅超级管理员和管理员可以在表格中看到“操作”列（编辑）
+const canManageProducts = computed(() => isSuperAdmin.value || isAdmin.value)
 // 管理员和超级管理员在表格中使用同行编辑
 const canInlineEdit = computed(() => isSuperAdmin.value || isAdmin.value)
 

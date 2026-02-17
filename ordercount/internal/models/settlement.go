@@ -10,6 +10,9 @@ type DailySettlement struct {
     // 结算日期（只保留到天，统一用本地日期字符串）
     Date string `json:"date" gorm:"size:10;index"`
 
+    // 记录这条结算记录由哪个登录用户创建，便于按用户区分可见范围
+    UserID  uint   `json:"user_id" gorm:"index"`
+
     Country  string  `json:"country" gorm:"size:20"`
     Currency string  `json:"currency" gorm:"size:10"`
 
