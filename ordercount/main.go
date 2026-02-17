@@ -72,8 +72,9 @@ func main() {
             }
         }
     }
-    if dsn == "" {
-        dsn = os.Getenv("MYSQL_DSN")
+    // 如设置了环境变量 MYSQL_DSN，则优先生效，便于 Docker / 线上环境覆盖配置文件
+    if envDSN := os.Getenv("MYSQL_DSN"); envDSN != "" {
+        dsn = envDSN
     }
     if dsn == "" {
         log.Fatal("please set MYSQL_DSN environment variable or config.yaml")

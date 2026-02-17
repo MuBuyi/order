@@ -1,0 +1,36 @@
+version: "3.9"
+
+services:
+  db:
+    image: mysql:8.0
+    container_name: ordercount-mysql
+    environment:
+      MYSQL_DATABASE: ordercount
+      MYSQL_USER: appuser
+      MYSQL_PASSWORD: app123456
+      MYSQL_ROOT_PASSWORD: rootpass123
+      TZ: Asia/Shanghai
+    volumes:
+      - db_data:/var/lib/mysql
+    restart: always
+
+  app:
+    build: ./ordercount
+    container_name: ordercount-app
+    depends_on:
+      - db
+    environment:
+      # 覆盖 DSN，指向 docker 内的 mysql 容器
+      MYSQL_DSN: "appuser:app123456@tcp(db:3306)/ordercount?charset=utf8mb4&parseTime=True&loc=Local"
+      GIN_MODE: release
+      # 如需在服务器上启用豆包/企微，可在部署时通过环境变量注入
+      # DOUBAO_API_KEY: "your-doubao-api-key"
+      # DOUBAO_ENDPOINT: "https://ark.cn-beijing.volces.com/api/v3/responses"
+      # DOUBAO_MODEL: "doubao-seed-2-0-pro-260215"
+      # WECHAT_ROBOT_WEBHOOK: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxxxx"
+    ports:
+      - "8080:8080"
+    restart: always
+
+volumes:
+  db_data:
