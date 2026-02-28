@@ -16,7 +16,11 @@
           <el-menu-item index="stats">订单统计</el-menu-item>
           <el-menu-item v-if="canSeeSettlement" index="settlement">结账工具</el-menu-item>
           <el-menu-item v-if="canSeeProduct" index="product">商品管理</el-menu-item>
-          <el-menu-item v-if="canSeeShop" index="shop">店铺管理</el-menu-item>
+          <el-sub-menu v-if="canSeeShop" index="shop">
+            <template #title>店铺管理</template>
+            <el-menu-item index="shop-manage">店铺管理</el-menu-item>
+            <el-menu-item index="shop-info">现有店铺信息</el-menu-item>
+          </el-sub-menu>
           <el-menu-item v-if="isSuperAdmin" index="users">用户管理</el-menu-item>
         </el-menu>
       </el-aside>
@@ -51,8 +55,13 @@
         </template>
 
         <!-- 店铺管理视图（根据权限控制） -->
-        <template v-else-if="activeMenu === 'shop' && canSeeShop">
+        <template v-else-if="activeMenu === 'shop-manage' && canSeeShop">
           <ShopManager :current-user="currentUser" />
+        </template>
+
+        <!-- 现有店铺信息视图：展示店铺每日广告费用等信息 -->
+        <template v-else-if="activeMenu === 'shop-info' && canSeeShop">
+          <StoreInfo :current-user="currentUser" />
         </template>
 
         <!-- 用户管理视图（仅超级管理员可见） -->
@@ -77,6 +86,7 @@ import SettlementList from './components/SettlementList.vue'
 import OrderList from './components/OrderList.vue'
 import ProductManager from './components/ProductManager.vue'
 import ShopManager from './components/ShopManager.vue'
+import StoreInfo from './components/StoreInfo.vue'
 import Login from './components/Login.vue'
 import UserManager from './components/UserManager.vue'
 
@@ -118,13 +128,15 @@ const ACTIVE_MENU_STORAGE_KEY = 'ordercount-active-menu'
 const savedMenu = typeof window !== 'undefined'
   ? window.localStorage.getItem(ACTIVE_MENU_STORAGE_KEY)
   : null
-const activeMenu = ref(savedMenu || 'stats')
+// 兼容旧版本中使用的 'shop' 菜单索引，统一映射到新的 'shop-manage'
+const initialMenu = savedMenu === 'shop' ? 'shop-manage' : (savedMenu || 'stats')
+const activeMenu = ref(initialMenu)
 
 // 如果当前用户无权限，但上次记住的是结账工具/商品管理/用户管理，则强制回到订单统计
 if (currentUser.value && (
   (!canSeeSettlement.value && activeMenu.value === 'settlement') ||
   (!canSeeProduct.value && activeMenu.value === 'product') ||
-  (!canSeeShop.value && activeMenu.value === 'shop') ||
+  (!canSeeShop.value && (activeMenu.value === 'shop-manage' || activeMenu.value === 'shop-info')) ||
   (!isSuperAdmin.value && activeMenu.value === 'users')
 )) {
   activeMenu.value = 'stats'
@@ -146,7 +158,7 @@ function onSelect(key) {
     return
   }
   // 无店铺管理权限的用户禁止切换到店铺管理
-  if (!canSeeShop.value && key === 'shop') {
+  if (!canSeeShop.value && (key === 'shop-manage' || key === 'shop-info')) {
     activeMenu.value = 'stats'
     return
   }
@@ -165,7 +177,7 @@ function onLoggedIn(user) {
 	currentUser.value = user
 	// 登录后根据角色调整当前菜单
   if ((!canSeeSettlement.value && activeMenu.value === 'settlement') ||
-  (!canSeeShop.value && activeMenu.value === 'shop') ||
+  (!canSeeShop.value && (activeMenu.value === 'shop-manage' || activeMenu.value === 'shop-info')) ||
       (!isSuperAdmin.value && activeMenu.value === 'users')) {
     activeMenu.value = 'stats'
     if (typeof window !== 'undefined') {

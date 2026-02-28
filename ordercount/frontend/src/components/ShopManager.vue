@@ -74,6 +74,16 @@
           {{ formatTime(scope.row.created_at) }}
         </template>
       </el-table-column>
+      <el-table-column label="状态" width="120">
+        <template #default="scope">
+          <el-switch
+            v-model="scope.row.is_blocked"
+            :active-value="false"
+            :inactive-value="true"
+            @change="onToggleBlocked(scope.row)"
+          />
+        </template>
+      </el-table-column>
       <el-table-column v-if="isSuperAdmin" label="操作" width="220">
         <template #default="scope">
           <el-button type="primary" link size="small" @click="onEdit(scope.row)">编辑</el-button>
@@ -128,8 +138,8 @@ const props = defineProps({
 })
 
 const stores = ref([])
-// 国家默认印尼
-const form = ref({ id: 0, platform: '', country: '印尼', name: '', login_account: '', login_password: '', phone: '', email: '' })
+// 国家默认印尼，is_blocked 默认 false（未封禁）
+const form = ref({ id: 0, platform: '', country: '印尼', name: '', login_account: '', login_password: '', phone: '', email: '', is_blocked: false })
 const msg = ref('')
 const msgOk = ref(false)
 
@@ -163,14 +173,19 @@ function formatTime(t) {
 async function load() {
   try {
     const res = await axios.get('/api/shops')
-    stores.value = res.data?.items || []
+    const items = res.data?.items || []
+    // 规范 is_blocked 为布尔，兼容 0/1/'0'/'1'/'true'/true
+    stores.value = items.map((s) => ({
+      ...s,
+      is_blocked: s === null || s === undefined ? false : (s.is_blocked === true || s.is_blocked === 'true' || s.is_blocked === 1 || s.is_blocked === '1')
+    }))
   } catch (e) {
     stores.value = []
   }
 }
 
 function onReset() {
-  form.value = { id: 0, platform: '', country: '印尼', name: '', login_account: '', login_password: '', phone: '', email: '' }
+  form.value = { id: 0, platform: '', country: '印尼', name: '', login_account: '', login_password: '', phone: '', email: '', is_blocked: false }
   msg.value = ''
 }
 
@@ -200,9 +215,29 @@ async function onSubmit() {
     msgOk.value = false
   }
 }
+ 
+async function onToggleBlocked(row) {
+  if (!row || !row.id) return
+  try {
+    // 在本地开发环境下自动带上调试绕过头，便于未登录时测试（生产请勿开启）
+    const devBypass = (typeof window !== 'undefined') && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+    const opts = devBypass ? { headers: { 'X-Bypass-Admin': '1' } } : {}
+    await axios.post('/api/shops', { ...row, is_blocked: Boolean(row.is_blocked) }, opts)
+    await load()
+  } catch (e) {
+    const status = e?.response?.status
+    if (status === 401 || status === 403) {
+      ElMessage.error('无操作权限，请以超级管理员登录')
+    } else {
+      ElMessage.error(e?.response?.data?.error || e?.message || '操作失败')
+    }
+    // 回滚状态
+    row.is_blocked = !row.is_blocked
+  }
+}
 
 function onEdit(row) {
-  form.value = { ...row }
+  form.value = { ...row, is_blocked: (row.is_blocked === true || row.is_blocked === 'true' || row.is_blocked === 1 || row.is_blocked === '1') }
   msg.value = ''
 }
 

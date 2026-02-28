@@ -21,6 +21,7 @@ func ExchangeRates(c *gin.Context) {
 		"PHP": exch.CurrencyName("PHP"),
 		"IDR": exch.CurrencyName("IDR"),
 		"MYR": exch.CurrencyName("MYR"),
+		"USD": exch.CurrencyName("USD"),
 		"CNY": exch.CurrencyName("CNY"),
 	}
 

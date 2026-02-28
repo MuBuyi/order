@@ -16,36 +16,40 @@ var (
     }
 )
 
-// 获取最新汇率（PHP/IDR/MYR->CNY），缓存10分钟
+// 获取最新汇率（PHP/IDR/MYR/USD 相对 CNY），缓存10分钟
 func GetRates() (map[string]float64, error) {
 	ratesCache.Lock()
 	defer ratesCache.Unlock()
 	if ratesCache.Rates != nil && time.Since(ratesCache.Last) < 10*time.Minute {
 		return ratesCache.Rates, nil
 	}
-	// 用 /live endpoint，source=CNY
-	url := "http://api.exchangerate.host/live?access_key=b602a5c72c93c34b68cc4aef9259f29e&source=CNY&currencies=PHP,IDR,MYR&format=1"
+	// 使用 open.er-api.com 的免费接口：基准货币为 CNY，返回完整 rates 表
+	// 示例：{"result":"success","base_code":"CNY","rates":{"PHP":8.49,"IDR":2409,...}}
+	url := "https://open.er-api.com/v6/latest/CNY"
 	resp, err := http.Get(url)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 	var data struct {
-		Quotes map[string]float64 `json:"quotes"`
-		Success bool `json:"success"`
-		Error   interface{} `json:"error"`
+		Result   string             `json:"result"`
+		BaseCode string             `json:"base_code"`
+		Rates    map[string]float64 `json:"rates"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
 		return nil, err
 	}
-	if !data.Success {
-		return nil, fmt.Errorf("exchange api error: %v", data.Error)
+	if data.Result != "success" {
+		return nil, fmt.Errorf("exchange api returned result=%s", data.Result)
+	}
+	if len(data.Rates) == 0 {
+		return nil, fmt.Errorf("exchange api returned empty rates")
 	}
 	conv := map[string]float64{}
-	// 解析如 "CNYPHP": 7.8
-	for k, v := range data.Quotes {
-		if len(k) == 6 && k[:3] == "CNY" {
-			conv[k[3:]] = v
+	// 只取我们关心的几个币种，保持含义为：1 CNY ≈ conv[币种] 外币
+	for _, code := range []string{"PHP", "IDR", "MYR", "USD"} {
+		if v, ok := data.Rates[code]; ok {
+			conv[code] = v
 		}
 	}
 	conv["CNY"] = 1
@@ -63,6 +67,8 @@ func CurrencyName(cur string) string {
 		return "印尼盾"
 	case "MYR":
 		return "马来西亚林吉特"
+	case "USD":
+		return "美元"
 	case "CNY":
 		return "人民币"
 	}

@@ -160,6 +160,12 @@ func main() {
         shops.GET(":id/users", handlers.GetStoreUsers(gdb))
         shops.POST(":id/users", handlers.UpdateStoreUsers(gdb))
 
+        // 店铺每日数据（每日广告费用等，销售额字段预留）
+        storeStats := api.Group("/store_stats")
+        storeStats.Use(handlers.AuthMiddleware())
+        storeStats.GET("", handlers.ListStoreStats(gdb))
+        storeStats.POST("", handlers.SaveStoreStat(gdb))
+
         // 新增统计接口
         api.GET("/stats/hourly", handlers.HourlyStats(gdb))
         api.GET("/stats/daily", handlers.DailyStats(gdb))

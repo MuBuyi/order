@@ -86,6 +86,12 @@
                   inactive-text="本国货币"
                   size="small"
                 />
+                <div
+                  v-if="shuaDanUseUSD && usdToCny > 0"
+                  style="font-size:10px;color:#909399;margin-top:2px;"
+                >
+                  当前 1 美元 ≈ {{ usdToCny.toFixed(4) }} 人民币
+                </div>
               </div>
               <div style="width:18%;">
                 <el-input-number
@@ -159,7 +165,7 @@
         -{{ goodsCost.toFixed(2) }}
       </el-descriptions-item>
       <el-descriptions-item label="刷单费用">
-        - ( 输入货币 × 汇率 × 7% + 刷单数 × 2 ) = -{{ shuaDanCost.toFixed(2) }}
+        - ( 折算成人民币后 × 7% + 刷单数 × 2 ) = -{{ shuaDanCost.toFixed(2) }}
       </el-descriptions-item>
       <el-descriptions-item label="固定成本">
         -{{ (Number(fixedCost) || 0).toFixed(2) }}
@@ -239,7 +245,8 @@ const remark = ref('')
 const autoFollowRate = ref(true)
 
 // 汇率表（1 人民币 ≈ rates[币种] 外币），需取倒数后用于“1 外币 ≈ ? 人民币”
-const rates = ref({ PHP: 0, IDR: 0, MYR: 0 })
+// 其中 USD 用于刷单费用选择“美元”时的换算
+const rates = ref({ PHP: 0, IDR: 0, MYR: 0, USD: 0 })
 
 const saving = ref(false)
 const saveMsg = ref('')
@@ -271,6 +278,7 @@ async function loadRates() {
       PHP: res.data?.rates?.PHP || 0,
       IDR: res.data?.rates?.IDR || 0,
       MYR: res.data?.rates?.MYR || 0,
+      USD: res.data?.rates?.USD || 0,
     }
     // 如果已经选了国家，根据最新汇率同步
     if (country.value && autoFollowRate.value) {
@@ -280,6 +288,13 @@ async function loadRates() {
     // 失败时保留现有数值，不中断使用
   }
 }
+
+// 计算 1 美元 ≈ ? 人民币（后端返回的是 1 人民币 ≈ rates.USD 美元，这里取倒数）
+const usdToCny = computed(() => {
+  const v = Number(rates.value.USD) || 0
+  if (!v) return 0
+  return 1 / v
+})
 
 function onCountryChange(val) {
   const cur = countryCurrencyMap[val] || ''
@@ -417,7 +432,15 @@ async function onSave() {
   saving.value = true
   try {
     const today = new Date()
-    const dateStr = today.toISOString().slice(0, 10)
+    // 使用本地年月日生成结算日期，避免 toISOString 受时区影响导致日期偏移
+    const y = today.getFullYear()
+    const m = String(today.getMonth() + 1).padStart(2, '0')
+    const d = String(today.getDate()).padStart(2, '0')
+    const dateStr = `${y}-${m}-${d}`
+
+    // 刷单费用统一按当前设置（本币/美元）折算为人民币后的最终成本
+    const shuaDanFeeCny = Number(shuaDanCost.value) || 0
+
     const payload = {
       date: dateStr,
       country: country.value,
@@ -426,7 +449,7 @@ async function onSave() {
       ad_cost: Number(adCost.value) || 0,
       exchange: Number(exchangeRate.value) || 0,
       goods_cost: Number(goodsCost.value) || 0,
-      shua_dan_fee: Number(shuaDanFee.value) || 0,
+      shua_dan_fee: shuaDanFeeCny,
       fixed_cost: Number(fixedCost.value) || 0,
       remark: remark.value,
     }
@@ -477,12 +500,25 @@ const platformFee = computed(() => {
   return s * 0.07
 })
 
-// 刷单费用：(输入货币 × 汇率 × 7%) + 输入的刷单数量 × 2
+// 刷单费用：（输入金额按币种折算成人民币后 × 7%） + 输入的刷单数量 × 2
 const shuaDanCost = computed(() => {
   const fee = Number(shuaDanFee.value) || 0
-  const r = Number(exchangeRate.value) || 0
   const count = Number(shuaDanCount.value) || 0
-  return fee * r * 0.07 + count * 2
+  if (!fee && !count) return 0
+
+  // 根据开关判断当前输入的是“本国货币”还是“美元”
+  let feeInCny = 0
+  if (shuaDanUseUSD.value) {
+    // 输入的是美元：按美元汇率折算成人民币
+    const rUsd = Number(usdToCny.value) || 0
+    feeInCny = fee * rUsd
+  } else {
+    // 输入的是本国货币：按当前国家对应汇率折算成人民币
+    const rLocal = Number(exchangeRate.value) || 0
+    feeInCny = fee * rLocal
+  }
+
+  return feeInCny * 0.07 + count * 2
 })
 
 // 当天利润 = 当天销售总额

@@ -2,6 +2,7 @@ package db
 
 import (
     "log"
+    "strings"
 
     "golang.org/x/crypto/bcrypt"
     "gorm.io/driver/mysql"
@@ -16,9 +17,15 @@ func InitDB(dsn string) (*gorm.DB, error) {
         return nil, err
     }
 
-    // 自动迁移（User 表已手工迁移，避免索引兼容性问题，这里不再自动迁移 User）
-    if err := db.AutoMigrate(&models.Order{}, &models.DailySettlement{}, &models.Product{}, &models.Store{}, &models.StoreUser{}); err != nil {
-        return nil, err
+    // 自动迁移: 包括 User 表，便于首次部署时自动创建缺失表结构
+    if err := db.AutoMigrate(&models.User{}, &models.Order{}, &models.DailySettlement{}, &models.Product{}, &models.Store{}, &models.StoreUser{}, &models.StoreDailyStat{}); err != nil {
+        // MySQL 有时会因为索引/约束名不一致尝试执行 DROP，返回 1091 错误（Can't DROP ...）
+        // 为了兼容已有数据库，遇到此类错误时记录警告并继续，而非直接失败。
+        if strings.Contains(err.Error(), "Can't DROP") || strings.Contains(err.Error(), "Error 1091") {
+            log.Println("warning: AutoMigrate non-fatal drop error ignored:", err)
+        } else {
+            return nil, err
+        }
     }
 
     // 如果还没有用户，创建默认超级管理员和管理员账号，便于首次登录

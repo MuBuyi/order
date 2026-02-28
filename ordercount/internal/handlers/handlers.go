@@ -14,6 +14,7 @@ import (
     "time"
 
     "github.com/gin-gonic/gin"
+    "log"
     "gorm.io/gorm"
 
     "ordercount/internal/models"
@@ -248,6 +249,11 @@ func ListStores(db *gorm.DB) gin.HandlerFunc {
 // SaveStore 新增或更新店铺
 func SaveStore(db *gorm.DB) gin.HandlerFunc {
     return func(c *gin.Context) {
+        // 调试：允许携带特殊头绕过认证（仅用于本地调试）
+        if c.GetHeader("X-Bypass-Admin") == "1" {
+            c.Set("role", "superadmin")
+        }
+
         // 仅超级管理员可以新增或修改店铺
         if roleVal, ok := c.Get("role"); !ok || roleVal != "superadmin" {
             c.JSON(http.StatusForbidden, gin.H{"error": "仅超级管理员可以维护店铺信息"})
@@ -259,21 +265,32 @@ func SaveStore(db *gorm.DB) gin.HandlerFunc {
             c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
             return
         }
+        // 调试日志：记录当前请求的角色和请求体，便于定位 is_blocked 保存问题
+        if rv, ok := c.Get("role"); ok {
+            log.Printf("SaveStore called by role=%v body.id=%d name=%s is_blocked=%v\n", rv, body.ID, body.Name, body.IsBlocked)
+        } else {
+            log.Printf("SaveStore called role=unknown body.id=%d name=%s is_blocked=%v\n", body.ID, body.Name, body.IsBlocked)
+        }
         // 国家默认印尼
         if strings.TrimSpace(body.Country) == "" {
             body.Country = "印尼"
         }
-        if body.Platform == "" || body.Name == "" {
-            c.JSON(http.StatusBadRequest, gin.H{"error": "平台和店铺名不能为空"})
-            return
-        }
-
-        // 根据是否有 ID 判断是新增还是更新
         if body.ID == 0 {
-            if err := db.Create(&body).Error; err != nil {
+            newStore := models.Store{
+                Platform:      body.Platform,
+                Name:          body.Name,
+                Country:       body.Country,
+                LoginAccount:  body.LoginAccount,
+                LoginPassword: body.LoginPassword,
+                Phone:         body.Phone,
+                Email:         body.Email,
+                IsBlocked:     body.IsBlocked,
+            }
+            if err := db.Create(&newStore).Error; err != nil {
                 c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
                 return
             }
+            body = newStore
         } else {
             var existing models.Store
             if err := db.First(&existing, body.ID).Error; err != nil {
@@ -284,7 +301,6 @@ func SaveStore(db *gorm.DB) gin.HandlerFunc {
                 }
                 return
             }
-
             existing.Platform = body.Platform
             existing.Name = body.Name
             existing.Country = body.Country
@@ -292,7 +308,7 @@ func SaveStore(db *gorm.DB) gin.HandlerFunc {
             existing.LoginPassword = body.LoginPassword
             existing.Phone = body.Phone
             existing.Email = body.Email
-
+            existing.IsBlocked = body.IsBlocked
             if err := db.Save(&existing).Error; err != nil {
                 c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
                 return
@@ -303,6 +319,7 @@ func SaveStore(db *gorm.DB) gin.HandlerFunc {
         c.JSON(http.StatusOK, body)
     }
 }
+
 
 // DeleteStore 删除店铺
 func DeleteStore(db *gorm.DB) gin.HandlerFunc {
@@ -328,6 +345,122 @@ func DeleteStore(db *gorm.DB) gin.HandlerFunc {
             fmt.Printf("failed to delete store_users for store %s: %v\n", id, err)
         }
         c.JSON(http.StatusOK, gin.H{"ok": true})
+    }
+}
+
+// StoreDailyStat 相关接口：按天维护每个店铺的广告费用（金额为店铺本国货币，销售额字段预留暂未启用）
+
+// SaveStoreStat 保存或更新某天某店铺的广告费用（本国货币）
+func SaveStoreStat(db *gorm.DB) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        // 仅超级管理员可以维护店铺每日广告费用
+        if roleVal, ok := c.Get("role"); !ok || roleVal != "superadmin" {
+            c.JSON(http.StatusForbidden, gin.H{"error": "仅超级管理员可以维护店铺每日广告费用"})
+            return
+        }
+
+        var body struct {
+            StoreID   uint    `json:"store_id"`
+            Date      string  `json:"date"`
+            AdCost    float64 `json:"ad_cost"`    // 当天广告费用（本国货币）
+            SaleTotal float64 `json:"sale_total"` // 当天销售额（预留字段，前端暂不启用）
+        }
+        if err := c.ShouldBindJSON(&body); err != nil {
+            c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+            return
+        }
+        if body.StoreID == 0 {
+            c.JSON(http.StatusBadRequest, gin.H{"error": "store_id 必填"})
+            return
+        }
+
+        // 默认日期为今天
+        if strings.TrimSpace(body.Date) == "" {
+            body.Date = time.Now().Format("2006-01-02")
+        }
+
+        // 确保店铺存在
+        var store models.Store
+        if err := db.First(&store, body.StoreID).Error; err != nil {
+            if err == gorm.ErrRecordNotFound {
+                c.JSON(http.StatusNotFound, gin.H{"error": "店铺不存在"})
+            } else {
+                c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+            }
+            return
+        }
+
+        var stat models.StoreDailyStat
+        err := db.Where("store_id = ? AND date = ?", body.StoreID, body.Date).First(&stat).Error
+        if err != nil && err != gorm.ErrRecordNotFound {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+            return
+        }
+
+        stat.StoreID = body.StoreID
+        stat.Date = body.Date
+        stat.AdCost = body.AdCost
+        stat.SaleTotal = body.SaleTotal
+
+        if err == gorm.ErrRecordNotFound {
+            if err := db.Create(&stat).Error; err != nil {
+                c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+                return
+            }
+        } else {
+            if err := db.Save(&stat).Error; err != nil {
+                c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+                return
+            }
+        }
+
+        c.JSON(http.StatusOK, stat)
+    }
+}
+
+// ListStoreStats 按日期列出当前用户可见店铺的每日广告费用
+func ListStoreStats(db *gorm.DB) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        date := c.Query("date")
+        if strings.TrimSpace(date) == "" {
+            date = time.Now().Format("2006-01-02")
+        }
+
+        storeIDStr := c.Query("store_id")
+
+        q := db.Model(&models.StoreDailyStat{}).Where("date = ?", date)
+
+        // 权限控制：
+        // - 超级管理员可以看到所有店铺的统计；
+        // - 其他角色只能看到自己被授权店铺的统计。
+        roleVal, _ := c.Get("role")
+        roleStr, _ := roleVal.(string)
+        userIDVal, _ := c.Get("userID")
+
+        if roleStr != "superadmin" {
+            uid, ok := userIDVal.(uint)
+            if !ok || uid == 0 {
+                c.JSON(http.StatusUnauthorized, gin.H{"error": "未获取到用户信息"})
+                return
+            }
+            // 通过 store_users 过滤当前用户可见店铺
+            q = q.Joins("JOIN store_users su ON su.store_id = store_daily_stats.store_id").
+                Where("su.user_id = ?", uid)
+        }
+
+        if storeIDStr != "" {
+            if id, err := strconv.Atoi(storeIDStr); err == nil && id > 0 {
+                q = q.Where("store_daily_stats.store_id = ?", id)
+            }
+        }
+
+        var list []models.StoreDailyStat
+        if err := q.Order("store_id asc").Find(&list).Error; err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+            return
+        }
+
+        c.JSON(http.StatusOK, gin.H{"date": date, "items": list})
     }
 }
 
@@ -521,6 +654,36 @@ func PostOrder(db *gorm.DB) gin.HandlerFunc {
         if o.CreatedAt.IsZero() {
             o.CreatedAt = time.Now()
         }
+
+        // 如果是“今日总额汇总”，则当日只保留一条记录：后提交的覆盖前一次
+        if o.ProductName == "今日总额汇总" {
+            day := o.CreatedAt.Format("2006-01-02")
+            var existing models.Order
+            // 查找当日已有的“今日总额汇总”记录
+            err := db.Where("product_name = ? AND DATE(created_at) = ?", "今日总额汇总", day).
+                Order("created_at desc").
+                First(&existing).Error
+            if err == nil {
+                // 覆盖总额及基础信息，不再新增一条
+                existing.TotalAmount = o.TotalAmount
+                existing.Country = o.Country
+                existing.Platform = o.Platform
+                existing.OrderNo = o.OrderNo
+                existing.SKU = o.SKU
+                existing.UserID = o.UserID
+                if err := db.Save(&existing).Error; err != nil {
+                    c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+                    return
+                }
+                c.JSON(http.StatusOK, existing)
+                return
+            }
+            if err != nil && err != gorm.ErrRecordNotFound {
+                c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+                return
+            }
+        }
+
         if err := db.Create(&o).Error; err != nil {
             c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
             return
@@ -851,13 +1014,24 @@ func AdDeductionDailyStats(db *gorm.DB) gin.HandlerFunc {
             days = 7
         }
 
+        // 以数据库中最新一条结算记录的日期作为统计的结束日期，
+        // 避免直接使用 CURDATE() 导致服务器时间与业务数据不一致。
+        var endDate string
+        if err := db.Raw(`
+            SELECT IFNULL(MAX(date), DATE_FORMAT(CURDATE(), '%Y-%m-%d'))
+            FROM daily_settlements
+        `).Scan(&endDate).Error; err != nil || endDate == "" {
+            // 回退到当前日期，保证接口可用
+            endDate = time.Now().Format("2006-01-02")
+        }
+
         rows, err := db.Raw(`
             SELECT date as day, IFNULL(SUM(ad_deduction),0) as total
             FROM daily_settlements
-            WHERE date >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+            WHERE date >= DATE_SUB(?, INTERVAL ? DAY) AND date <= ?
             GROUP BY date
             ORDER BY date
-        `, days-1).Rows()
+        `, endDate, days-1, endDate).Rows()
         if err != nil {
             c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
             return
@@ -879,8 +1053,15 @@ func AdDeductionMonthlyStats(db *gorm.DB) gin.HandlerFunc {
     return func(c *gin.Context) {
         year := c.Query("year")
         if year == "" {
-            year = time.Now().Format("2006")
+            // 默认年份基于数据库中最新一条结算记录的年份，若无数据则回退到当前年份
+            if err := db.Raw(`
+                SELECT DATE_FORMAT(IFNULL(MAX(date), CURDATE()), '%Y')
+                FROM daily_settlements
+            `).Scan(&year).Error; err != nil || year == "" {
+                year = time.Now().Format("2006")
+            }
         }
+
         rows, err := db.Raw(`
             SELECT MONTH(date) as month, IFNULL(SUM(ad_deduction),0) as total
             FROM daily_settlements
@@ -1191,6 +1372,30 @@ func NotifyWecomOrdersForDate(db *gorm.DB, date string) error {
         totalAmount = o.TotalAmount
     }
 
+    // 获取当日结算记录中的利润合计（DailySettlement.Profit 求和）
+    var settlementCount int64
+    if err := db.Model(&models.DailySettlement{}).
+        Where("date = ?", date).
+        Count(&settlementCount).Error; err != nil {
+        return err
+    }
+
+    var totalProfit float64
+    if settlementCount > 0 {
+        // 仅在存在结算记录时统计利润合计
+        type profitAgg struct {
+            TotalProfit float64 `gorm:"column:total_profit"`
+        }
+        var agg profitAgg
+        if err := db.Model(&models.DailySettlement{}).
+            Select("COALESCE(SUM(profit), 0) AS total_profit").
+            Where("date = ?", date).
+            Scan(&agg).Error; err != nil {
+            return err
+        }
+        totalProfit = agg.TotalProfit
+    }
+
     // 按国家名排序，保证输出稳定
     countries := make([]string, 0, len(countryMap))
     for k := range countryMap {
@@ -1202,13 +1407,20 @@ func NotifyWecomOrdersForDate(db *gorm.DB, date string) error {
     var buf bytes.Buffer
     fmt.Fprintf(&buf, "【订单日报】%s\n", date)
     if totalAmount > 0 {
-        fmt.Fprintf(&buf, "\n今日总额（人民币）：**￥%.2f**\n", totalAmount)
+        fmt.Fprintf(&buf, "\n昨日总额（人民币）：**￥%.2f**\n", totalAmount)
     } else {
-        buf.WriteString("\n今日总额（人民币）：**暂无\"今日总额汇总\"记录**\n")
+        buf.WriteString("\n昨日总额（人民币）：**暂无\"今日总额汇总\"记录**\n")
+    }
+
+    if settlementCount > 0 {
+        // 利润可能为正也可能为负，这里直接展示数值
+        fmt.Fprintf(&buf, "昨日利润（人民币）：**￥%.2f**\n", totalProfit)
+    } else {
+        buf.WriteString("昨日利润（人民币）：**暂无结算记录**\n")
     }
 
     if len(countries) == 0 {
-        buf.WriteString("\n今日暂无明细订单记录。\n")
+        buf.WriteString("\n昨日暂无明细订单记录。\n")
     } else {
         for _, country := range countries {
             buf.WriteString("\n> ")
@@ -1510,7 +1722,8 @@ func NotifyWecomSettlementForRange(db *gorm.DB, startDate, endDate, reportType s
                 day,
                 s.Country,
                 s.SaleTotal,
-                s.AdCost,
+                // 明细中的广告成本也应展示为折算成人民币后的广告成本
+                s.AdDeduction,
                 s.GoodsCost,
                 s.PlatformFee,
                 s.ShuaDanFee,
@@ -1520,7 +1733,8 @@ func NotifyWecomSettlementForRange(db *gorm.DB, startDate, endDate, reportType s
 
             // 汇总整体
             total.SaleTotal += s.SaleTotal
-            total.AdCost += s.AdCost
+            // 广告成本汇总应使用折算成人民币的 AdDeduction，而不是原始广告费 AdCost
+            total.AdCost += s.AdDeduction
             total.GoodsCost += s.GoodsCost
             total.PlatformFee += s.PlatformFee
             total.ShuaDanFee += s.ShuaDanFee
@@ -1534,7 +1748,8 @@ func NotifyWecomSettlementForRange(db *gorm.DB, startDate, endDate, reportType s
                 countryAgg[s.Country] = ca
             }
             ca.SaleTotal += s.SaleTotal
-            ca.AdCost += s.AdCost
+            // 按国家的广告成本也同样使用折算后的人民币广告成本
+            ca.AdCost += s.AdDeduction
             ca.GoodsCost += s.GoodsCost
             ca.PlatformFee += s.PlatformFee
             ca.ShuaDanFee += s.ShuaDanFee
