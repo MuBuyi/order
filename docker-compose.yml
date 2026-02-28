@@ -13,6 +13,16 @@ services:
     volumes:
       - db_data:/var/lib/mysql
     restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-u", "root", "-prootpass123"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
 
   app:
     build: ./ordercount
@@ -25,11 +35,22 @@ services:
       # 覆盖 DSN，指向宿主机上的 mysql（容器与宿主共享网络）
       MYSQL_DSN: "appuser:app123456@tcp(127.0.0.1:3306)/ordercount?charset=utf8mb4&parseTime=True&loc=Local"
       GIN_MODE: release
+      restart: always
       # 如需在服务器上启用豆包/企微，可在部署时通过环境变量注入
       # DOUBAO_API_KEY: "your-doubao-api-key"
       # DOUBAO_ENDPOINT: "https://ark.cn-beijing.volces.com/api/v3/responses"
       # DOUBAO_MODEL: "doubao-seed-2-0-pro-260215"
       # WECHAT_ROBOT_WEBHOOK: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxxxx"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS --max-time 3 http://127.0.0.1:8080/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     restart: always
 
 volumes:

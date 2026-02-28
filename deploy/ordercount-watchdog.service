@@ -1,0 +1,13 @@
+[Unit]
+Description=OrderCount watchdog (checks app health and restarts if unhealthy)
+After=network.target docker.service
+
+[Service]
+Type=simple
+User=root
+ExecStart=/home/condingyang/coding/order/ordercount/scripts/watchdog.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
