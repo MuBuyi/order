@@ -7,10 +7,12 @@
         <el-col :span="6">
           <el-form-item label="国家">
             <el-select v-model="form.country" placeholder="请选择国家" style="width:100%;">
-              <el-option label="菲律宾" value="菲律宾" />
-              <el-option label="印尼" value="印尼" />
-              <el-option label="马来西亚" value="马来西亚" />
-              <el-option label="其他" value="其他" />
+              <el-option
+                v-for="c in countriesForForm"
+                :key="c"
+                :label="c"
+                :value="c"
+              />
             </el-select>
           </el-form-item>
         </el-col>
@@ -49,6 +51,11 @@
             <el-input v-model="form.email" placeholder="店铺绑定邮箱" />
           </el-form-item>
         </el-col>
+        <el-col :span="6">
+          <el-form-item label="备注">
+            <el-input v-model="form.remark" placeholder="填写备注（可选）" />
+          </el-form-item>
+        </el-col>
       </el-row>
       <el-form-item>
         <el-button type="primary" @click="onSubmit">{{ form.id ? '保存修改' : '新增店铺' }}</el-button>
@@ -57,7 +64,19 @@
       </el-form-item>
     </el-form>
 
-    <el-table :data="stores" size="small" border style="width:100%;">
+    <div style="margin:10px 0; display:flex; align-items:center; justify-content:flex-end; gap:12px;">
+      <div>按国家筛选：</div>
+      <el-select v-model="selectedCountry" placeholder="全部国家" style="width:220px;">
+        <el-option
+          v-for="c in countries"
+          :key="c"
+          :label="c"
+          :value="c"
+        />
+      </el-select>
+    </div>
+
+    <el-table :data="filteredStores" size="small" border style="width:100%;">
       <el-table-column prop="country" label="国家" width="100" />
       <el-table-column prop="platform" label="平台" width="120" />
       <el-table-column prop="name" label="店铺名称" width="180" />
@@ -69,6 +88,7 @@
       </el-table-column>
       <el-table-column prop="phone" label="绑定手机号" width="150" />
       <el-table-column prop="email" label="绑定邮箱" width="200" />
+      <el-table-column prop="remark" label="备注" width="200" />
       <el-table-column prop="created_at" label="创建时间" width="180">
         <template #default="scope">
           {{ formatTime(scope.row.created_at) }}
@@ -139,7 +159,7 @@ const props = defineProps({
 
 const stores = ref([])
 // 国家默认印尼，is_blocked 默认 false（未封禁）
-const form = ref({ id: 0, platform: '', country: '印尼', name: '', login_account: '', login_password: '', phone: '', email: '', is_blocked: false })
+const form = ref({ id: 0, platform: '', country: '印尼', name: '', login_account: '', login_password: '', phone: '', email: '', remark: '', is_blocked: false })
 const msg = ref('')
 const msgOk = ref(false)
 
@@ -149,6 +169,33 @@ const authStore = ref(null)
 const authUserIds = ref([])
 
 const isSuperAdmin = computed(() => props.currentUser && props.currentUser.role === 'superadmin')
+
+// 国家筛选与动态国家列表
+const selectedCountry = ref('全部')
+const countries = computed(() => {
+  const set = new Set()
+  stores.value.forEach((s) => { if (s && s.country) set.add(s.country) })
+  // Ensure commonly used countries are present in the list
+  const required = ['菲律宾', '马来西亚']
+  required.forEach(r => set.add(r))
+  const arr = Array.from(set).sort()
+  if (arr.length === 0) return ['菲律宾', '印尼', '马来西亚', '其他']
+  return ['全部', ...arr]
+})
+
+const countriesForForm = computed(() => {
+  const arr = countries.value.filter((c) => c !== '全部')
+  return arr.length ? arr : ['菲律宾', '印尼', '马来西亚', '其他']
+})
+
+const filteredStores = computed(() => {
+  const list = (!selectedCountry.value || selectedCountry.value === '全部') ? (stores.value || []) : (stores.value || []).filter((s) => s && s.country === selectedCountry.value)
+  return (list || []).slice().sort((a, b) => {
+    const an = (a && a.name) ? String(a.name) : ''
+    const bn = (b && b.name) ? String(b.name) : ''
+    return an.localeCompare(bn, 'zh-CN', { numeric: true })
+  })
+})
 
 // 在输入绑定邮箱时，如果只输入了前缀、不包含 @，自动补全为 xxx@radiant-ec.com
 watch(
@@ -175,17 +222,24 @@ async function load() {
     const res = await axios.get('/api/shops')
     const items = res.data?.items || []
     // 规范 is_blocked 为布尔，兼容 0/1/'0'/'1'/'true'/true
-    stores.value = items.map((s) => ({
+    const mapped = items.map((s) => ({
       ...s,
       is_blocked: s === null || s === undefined ? false : (s.is_blocked === true || s.is_blocked === 'true' || s.is_blocked === 1 || s.is_blocked === '1')
     }))
+    // 按店铺名称排序（启用 numeric 以获得自然数值排序，如 X9 在 X13 之前）
+    mapped.sort((a, b) => {
+      const an = (a && a.name) ? String(a.name) : ''
+      const bn = (b && b.name) ? String(b.name) : ''
+      return an.localeCompare(bn, 'zh-CN', { numeric: true })
+    })
+    stores.value = mapped
   } catch (e) {
     stores.value = []
   }
 }
 
 function onReset() {
-  form.value = { id: 0, platform: '', country: '印尼', name: '', login_account: '', login_password: '', phone: '', email: '', is_blocked: false }
+  form.value = { id: 0, platform: '', country: '印尼', name: '', login_account: '', login_password: '', phone: '', email: '', remark: '', is_blocked: false }
   msg.value = ''
 }
 

@@ -16,9 +16,15 @@
       />
       <el-button size="small" @click="loadAll">刷新</el-button>
       <span v-if="loading" style="font-size:12px;color:#909399;">加载中...</span>
+      <div style="margin-left:auto; display:flex; align-items:center; gap:8px;">
+        <div>按国家筛选：</div>
+        <el-select v-model="selectedCountry" placeholder="全部国家" style="width:180px;" clearable>
+          <el-option v-for="c in countries" :key="c" :label="c" :value="c" />
+        </el-select>
+      </div>
     </div>
 
-    <el-table :data="rows" size="small" border style="width:100%;">
+    <el-table :data="filteredRows" size="small" border style="width:100%;">
       <el-table-column prop="country" label="国家" width="100" />
       <el-table-column prop="platform" label="平台" width="120" />
       <el-table-column prop="name" label="店铺名称" width="200" />
@@ -40,6 +46,13 @@
                 style="margin-left:8px;"
                 @click="onSaveStat(scope.row)"
               >保存</el-button>
+              <el-tag
+                v-if="scope.row._hasStat"
+                type="success"
+                size="small"
+                effect="plain"
+                style="margin-left:6px;"
+              >已保存</el-tag>
             </div>
             <div style="margin-top:2px;font-size:11px;color:#909399;min-height:16px;">
               {{ scaleHint(scope.row.ad_cost) }}
@@ -76,6 +89,7 @@
         <el-descriptions-item label="登录密码">{{ detailStore.login_password }}</el-descriptions-item>
         <el-descriptions-item label="绑定手机号">{{ detailStore.phone }}</el-descriptions-item>
         <el-descriptions-item label="绑定邮箱">{{ detailStore.email }}</el-descriptions-item>
+        <el-descriptions-item label="备注">{{ detailStore.remark }}</el-descriptions-item>
       </el-descriptions>
     </div>
     <template #footer>
@@ -101,6 +115,8 @@ const stores = ref([])
 const statsMap = ref({}) // { [storeId]: { ad_cost, sale_total } }
 const rows = ref([])
 const loading = ref(false)
+// 国家筛选：默认展示“印尼”店铺
+const selectedCountry = ref('印尼')
 
 // 汇率：后端返回含义为 1 CNY ≈ rates[币种] 外币
 const rates = ref({ PHP: 0, IDR: 0, MYR: 0, USD: 0, CNY: 1 })
@@ -119,29 +135,60 @@ const isSuperAdmin = computed(() => props.currentUser && props.currentUser.role 
 
 function rebuildRows () {
   const map = statsMap.value || {}
-  rows.value = (stores.value || [])
-    .map(s => ({
+  const list = (stores.value || []).
+    map(s => ({
       // 兼容后端返回的 is_blocked 可能为 boolean、0/1 或字符串 '0'/'1'/'false'/'true'
       ...s,
       is_blocked: (s.is_blocked === true) || (s.is_blocked === 1) || (s.is_blocked === '1') || (s.is_blocked === 'true')
-    }))
-    .filter(s => !s.is_blocked)
-    .map(s => {
+    })).filter(s => !s.is_blocked).map(s => {
       const stat = map[s.id] || {}
       return {
         ...s,
         ad_cost: typeof stat.ad_cost === 'number' ? stat.ad_cost : 0,
         sale_total: typeof stat.sale_total === 'number' ? stat.sale_total : 0,
+        _hasStat: !!map[s.id],
       }
     })
+
+  // 按店铺名称排序
+  list.sort((a, b) => {
+    const an = (a && a.name) ? String(a.name) : ''
+    const bn = (b && b.name) ? String(b.name) : ''
+    return an.localeCompare(bn, 'zh-CN', { numeric: true })
+  })
+
+  rows.value = list
 }
+
+const countries = computed(() => {
+  try {
+    const set = new Set()
+    ;(rows.value || []).forEach((r) => { if (r && r.country) set.add(r.country) })
+    const arr = Array.from(set).sort()
+    return arr
+  } catch (e) {
+    return ['菲律宾', '印尼', '马来西亚']
+  }
+})
+
+const filteredRows = computed(() => {
+  // 未选择国家时显示全部
+  if (!selectedCountry.value) return rows.value
+  return (rows.value || []).filter((r) => r && r.country === selectedCountry.value)
+})
 
 async function loadStores () {
   try {
     const devBypass = (typeof window !== 'undefined') && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
     const opts = devBypass ? { headers: { 'X-Bypass-Admin': '1' } } : {}
     const res = await axios.get('/api/shops', opts)
-    stores.value = res.data?.items || []
+    const items = res.data?.items || []
+    items.sort((a, b) => {
+      const an = (a && a.name) ? String(a.name) : ''
+      const bn = (b && b.name) ? String(b.name) : ''
+      return an.localeCompare(bn, 'zh-CN', { numeric: true })
+    })
+    stores.value = items
   } catch (e) {
     stores.value = []
   }
@@ -215,8 +262,17 @@ async function onSaveStat (row) {
       sale_total: Number(row.sale_total) || 0,
     })
     ElMessage.success('已保存当日广告费用')
-    await loadStats()
-    rebuildRows()
+    // 只更新当前店铺的统计数据，避免刷新全部数据导致其他未保存行被重置
+    const currentMap = statsMap.value || {}
+    statsMap.value = {
+      ...currentMap,
+      [row.id]: {
+        ad_cost: Number(row.ad_cost) || 0,
+        sale_total: Number(row.sale_total) || 0,
+      },
+    }
+    // 标记当前店铺在选定日期下已保存过广告费
+    row._hasStat = true
   } catch (e) {
     ElMessage.error(e?.response?.data?.error || e?.message || '保存失败')
   }

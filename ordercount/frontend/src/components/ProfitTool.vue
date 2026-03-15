@@ -3,8 +3,22 @@
     <template #header>
       结账工具（当天利润计算）
     </template>
+    
     <el-form label-width="120px" @submit.prevent>
       <el-row :gutter="10">
+        <el-col :span="12">
+          <el-form-item label="结算日期">
+            <el-date-picker
+              v-model="date"
+              type="date"
+              placeholder="选择日期"
+              format="YYYY-MM-DD"
+              value-format="YYYY-MM-DD"
+              @change="onDateChange"
+              style="width:60%;"
+            />
+          </el-form-item>
+        </el-col>
         <el-col :span="12">
           <el-form-item label="国家">
             <div style="display:inline-block;width:60%;">
@@ -14,9 +28,7 @@
                 style="width:100%;"
                 @change="onCountryChange"
               >
-                <el-option label="菲律宾" value="菲律宾" />
-                <el-option label="印尼" value="印尼" />
-                <el-option label="马来西亚" value="马来西亚" />
+                <el-option v-for="c in countries" :key="c" :label="c" :value="c" />
               </el-select>
             </div>
           </el-form-item>
@@ -32,6 +44,7 @@
             />
           </el-form-item>
         </el-col>
+            
         <el-col :span="12">
           <el-form-item label="广告费">
             <div style="position:relative;display:inline-block;width:60%;padding-bottom:14px;">
@@ -40,10 +53,14 @@
                 :min="0"
                 :step="0.01"
                 style="width:100%;"
-                placeholder="请输入本国货币数值"
+                placeholder="自动汇总现有店铺每天广告费用之和"
+                :disabled="true"
               />
               <div v-if="adCostLevel" style="position:absolute;right:4px;bottom:0;font-size:10px;color:#909399;line-height:1;">
                 {{ adCostLevel }}
+              </div>
+              <div style="position:absolute;left:0;bottom:0;font-size:10px;color:#909399;line-height:1;">
+                广告费来源于现有店铺信息中所有未屏蔽店铺的每天广告费用之和
               </div>
             </div>
           </el-form-item>
@@ -117,12 +134,29 @@
             />
           </el-form-item>
         </el-col>
+        
         <el-col :span="12">
           <el-form-item label="固定成本">
-            <div style="position:relative;display:inline-block;width:60%;padding-bottom:14px;">
-              <el-input-number v-model="fixedCost" :min="0" :step="0.01" style="width:100%;" />
-              <div v-if="fixedCostLevel" style="position:absolute;right:4px;bottom:0;font-size:10px;color:#909399;line-height:1;">
-                {{ fixedCostLevel }}
+            <div style="display:flex;align-items:flex-start;gap:8px;">
+              <div style="position:relative;display:inline-block;width:60%;padding-bottom:14px;">
+                <el-input-number
+                  v-model="fixedCost"
+                  :min="0"
+                  :step="0.01"
+                  style="width:100%;"
+                  :disabled="!fixedCostEditable"
+                />
+                <div v-if="fixedCostLevel" style="position:absolute;right:4px;bottom:0;font-size:10px;color:#909399;line-height:1;">
+                  {{ fixedCostLevel }}
+                </div>
+              </div>
+              <div style="font-size:10px;color:#909399;margin-top:4px;">
+                <el-switch
+                  v-model="fixedCostEditable"
+                  size="small"
+                  active-text="可编辑"
+                  inactive-text="锁定"
+                />
               </div>
             </div>
           </el-form-item>
@@ -209,6 +243,8 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import * as echarts from 'echarts'
 import axios from 'axios'
+import { fetchCountries } from '../utils/countries'
+// CurrencyConverter removed; conversion UI rolled back
 
 // 国家与币种映射
 const countryCurrencyMap = {
@@ -220,6 +256,10 @@ const countryCurrencyMap = {
 // 当前选择的国家和币种（默认印尼）
 const country = ref('印尼')
 const currentCurrency = ref('')
+const countries = ref([])
+
+// 结算日期
+const date = ref('')
 
 // 当天销售总额
 const saleTotal = ref(0)
@@ -238,6 +278,12 @@ const shuaDanUseUSD = ref(false)
 // 固定成本
 const fixedCost = ref(null)
 
+// 固定成本是否可编辑（默认锁定，只读）
+const fixedCostEditable = ref(false)
+
+// 按国家汇总的“每天广告费用(本国货币)”
+const countryAdCostMap = ref({})
+
 // 备注
 const remark = ref('')
 
@@ -247,6 +293,8 @@ const autoFollowRate = ref(true)
 // 汇率表（1 人民币 ≈ rates[币种] 外币），需取倒数后用于“1 外币 ≈ ? 人民币”
 // 其中 USD 用于刷单费用选择“美元”时的换算
 const rates = ref({ PHP: 0, IDR: 0, MYR: 0, USD: 0 })
+
+// 币种转换已移至独立组件 CurrencyConverter
 
 const saving = ref(false)
 const saveMsg = ref('')
@@ -280,6 +328,8 @@ async function loadRates() {
       MYR: res.data?.rates?.MYR || 0,
       USD: res.data?.rates?.USD || 0,
     }
+    // 保证有 CNY 项，后续转换以 CNY 为中间货币
+    rates.value.CNY = 1
     // 如果已经选了国家，根据最新汇率同步
     if (country.value && autoFollowRate.value) {
       onCountryChange(country.value)
@@ -306,10 +356,22 @@ function onCountryChange(val) {
   }
 }
 
+function syncAdCostFromCountry () {
+  const c = country.value
+  const map = countryAdCostMap.value || {}
+  if (!c) {
+    adCost.value = 0
+    return
+  }
+  const v = Number(map[c]) || 0
+  adCost.value = v
+}
+
 async function loadTodayGoodsCost () {
   try {
-    const res = await axios.get('/api/costs/today')
-    goodsCost.value = res.data?.total_cost || 0
+  const dateStr = date.value || getTodayStr()
+  const res = await axios.get('/api/costs/today', { params: { date: dateStr } })
+  goodsCost.value = res.data?.total_cost || 0
   } catch (e) {
     // 失败时保持手动输入的值
   }
@@ -328,16 +390,6 @@ function loadLastInput () {
     if (data.country) {
       country.value = data.country
       onCountryChange(data.country)
-    }
-
-    if (typeof data.adCost === 'number') {
-      adCost.value = data.adCost
-    }
-    if (typeof data.shuaDanFee === 'number') {
-      shuaDanFee.value = data.shuaDanFee
-    }
-    if (typeof data.shuaDanCount === 'number') {
-      shuaDanCount.value = data.shuaDanCount
     }
     if (typeof data.shuaDanUseUSD === 'boolean') {
       shuaDanUseUSD.value = data.shuaDanUseUSD
@@ -359,17 +411,27 @@ function loadLastInput () {
 }
 
 onMounted(() => {
+	if (!date.value) {
+		date.value = getTodayStr()
+	}
   loadRates()
   loadTodayGoodsCost()
   loadTodaySales()
-		loadAdTrend()
+  loadCountryAdCost()
+  loadAdTrend()
   loadLastInput()
+  ;(async () => {
+    const list = await fetchCountries()
+    countries.value = list || ['菲律宾', '印尼', '马来西亚']
+    if (!country.value && countries.value.length) country.value = countries.value[0]
+  })()
 })
 
 async function loadTodaySales () {
   try {
-    const res = await axios.get('/api/sales/today')
-    saleTotal.value = res.data?.total_amount || 0
+  const dateStr = date.value || getTodayStr()
+  const res = await axios.get('/api/sales/today', { params: { date: dateStr } })
+  saleTotal.value = res.data?.total_amount || 0
   } catch (e) {
     // 失败时保持手动输入的值
   }
@@ -393,6 +455,60 @@ async function loadAdTrend () {
   } catch (e) {
     renderAdTrendChart([], [], '广告费数据加载失败')
   }
+}
+
+async function loadCountryAdCost () {
+  try {
+  const dateStr = date.value || getTodayStr()
+
+    const devBypass = (typeof window !== 'undefined') && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+    const commonOpts = devBypass ? { headers: { 'X-Bypass-Admin': '1' } } : {}
+
+    const [shopsRes, statsRes] = await Promise.all([
+      axios.get('/api/shops', commonOpts),
+      axios.get('/api/store_stats', { ...commonOpts, params: { date: dateStr } }),
+    ])
+
+    const shops = shopsRes.data?.items || []
+    const statsList = statsRes.data?.items || []
+
+    const statMap = {}
+    for (const it of statsList) {
+      if (!it || !it.store_id) continue
+      statMap[it.store_id] = Number(it.ad_cost) || 0
+    }
+
+    const sums = {}
+    for (const s of shops) {
+      if (!s || !s.id) continue
+      const isBlocked = (s.is_blocked === true) || (s.is_blocked === 1) || (s.is_blocked === '1') || (s.is_blocked === 'true')
+      if (isBlocked) continue
+      const c = s.country
+      if (!c) continue
+      const v = statMap[s.id] || 0
+      if (!v) continue
+      sums[c] = (sums[c] || 0) + v
+    }
+
+    countryAdCostMap.value = sums
+    syncAdCostFromCountry()
+  } catch (e) {
+    countryAdCostMap.value = {}
+  }
+}
+
+function getTodayStr () {
+  const today = new Date()
+  const y = today.getFullYear()
+  const m = String(today.getMonth() + 1).padStart(2, '0')
+  const d = String(today.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+function onDateChange () {
+  loadTodaySales()
+  loadTodayGoodsCost()
+  loadCountryAdCost()
 }
 
 function renderAdTrendChart (labels, values, title) {
@@ -431,12 +547,7 @@ async function onSave() {
   saveOk.value = false
   saving.value = true
   try {
-    const today = new Date()
-    // 使用本地年月日生成结算日期，避免 toISOString 受时区影响导致日期偏移
-    const y = today.getFullYear()
-    const m = String(today.getMonth() + 1).padStart(2, '0')
-    const d = String(today.getDate()).padStart(2, '0')
-    const dateStr = `${y}-${m}-${d}`
+  const dateStr = date.value || getTodayStr()
 
     // 刷单费用统一按当前设置（本币/美元）折算为人民币后的最终成本
     const shuaDanFeeCny = Number(shuaDanCost.value) || 0
@@ -463,8 +574,6 @@ async function onSave() {
         const toSave = {
           country: country.value,
           adCost: Number(adCost.value) || 0,
-          shuaDanFee: Number(shuaDanFee.value) || 0,
-          shuaDanCount: Number(shuaDanCount.value) || 0,
           shuaDanUseUSD: !!shuaDanUseUSD.value,
           fixedCost: Number(fixedCost.value) || 0,
           autoFollowRate: !!autoFollowRate.value,
@@ -538,3 +647,6 @@ const adCostLevel = computed(() => getLevelLabel(adCost.value))
 const shuaDanLevel = computed(() => getLevelLabel(shuaDanFee.value))
 const fixedCostLevel = computed(() => getLevelLabel(fixedCost.value))
 </script>
+
+<style scoped>
+</style>

@@ -6,9 +6,11 @@
     <div style="margin-bottom:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
       <span>选择日期：</span>
       <el-date-picker
-        v-model="date"
-        type="date"
-        placeholder="选择日期"
+        v-model="dateRange"
+        type="daterange"
+        range-separator="至"
+        start-placeholder="开始日期"
+        end-placeholder="结束日期"
         format="YYYY-MM-DD"
         value-format="YYYY-MM-DD"
         @change="onFilterChange"
@@ -16,9 +18,7 @@
       <span>国家：</span>
       <el-select v-model="country" placeholder="全部国家" style="width:140px;" @change="onFilterChange" clearable>
         <el-option label="全部" :value="''" />
-        <el-option label="菲律宾" value="菲律宾" />
-        <el-option label="印尼" value="印尼" />
-        <el-option label="马来西亚" value="马来西亚" />
+        <el-option v-for="c in countries" :key="c" :label="c" :value="c" />
       </el-select>
       <el-button size="small" @click="onRefresh">刷新</el-button>
       <el-button
@@ -90,6 +90,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import axios from 'axios'
+import { fetchCountries } from '../utils/countries'
 
 const props = defineProps({
   currentUser: {
@@ -97,8 +98,9 @@ const props = defineProps({
     default: null,
   },
 })
-const date = ref('')
+const dateRange = ref([])
 const country = ref('')
+const countries = ref([])
 const items = ref([])
 const loading = ref(false)
 const currentPage = ref(1)
@@ -128,8 +130,12 @@ async function load() {
       page: currentPage.value,
       page_size: pageSize.value,
     }
-    if (date.value) {
-      params.date = date.value
+    if (Array.isArray(dateRange.value) && dateRange.value.length === 2) {
+      const [start, end] = dateRange.value
+      if (start && end) {
+        params.start_date = start
+        params.end_date = end
+      }
     }
     if (country.value) {
       params.country = country.value
@@ -151,8 +157,12 @@ async function onManualPush() {
   pushing.value = true
   try {
     const payload = {}
-    if (date.value) {
-      payload.date = date.value
+    // 兼容：当选择区间为同一天时，仍然向后端传递单一 date 进行推送
+    if (Array.isArray(dateRange.value) && dateRange.value.length === 2) {
+      const [start, end] = dateRange.value
+      if (start && end && start === end) {
+        payload.date = start
+      }
     }
     await axios.post('/api/settlements/push', payload)
     // 推送成功后不强制刷新列表，只在需要时手动刷新
@@ -181,5 +191,9 @@ function onPageChange(page) {
 onMounted(() => {
   // 默认不限定日期，加载所有结算记录的第 1 页
   load()
+  ;(async () => {
+    const list = await fetchCountries()
+    countries.value = list || []
+  })()
 })
 </script>

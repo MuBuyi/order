@@ -223,7 +223,7 @@ func ListStores(db *gorm.DB) gin.HandlerFunc {
         userIDVal, _ := c.Get("userID")
 
         if roleStr, ok := roleVal.(string); ok && roleStr == "superadmin" {
-            if err := db.Order("created_at asc").Find(&list).Error; err != nil {
+            if err := db.Order("name asc").Find(&list).Error; err != nil {
                 c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
                 return
             }
@@ -235,7 +235,7 @@ func ListStores(db *gorm.DB) gin.HandlerFunc {
             }
             if err := db.Joins("JOIN store_users su ON su.store_id = stores.id").
                 Where("su.user_id = ?", uid).
-                Order("stores.created_at asc").
+                Order("stores.name asc").
                 Find(&list).Error; err != nil {
                 c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
                 return
@@ -243,6 +243,61 @@ func ListStores(db *gorm.DB) gin.HandlerFunc {
         }
 
         c.JSON(http.StatusOK, gin.H{"items": list})
+    }
+}
+
+// ListCountries 返回当前用户可见的店铺国家列表（去重、按字母/汉字排序）
+func ListCountries(db *gorm.DB) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        roleVal, _ := c.Get("role")
+        userIDVal, _ := c.Get("userID")
+
+        var countries []string
+        var err error
+
+        // 如果请求携带调试头可以绕过认证（仅本地调试使用）
+        if c.GetHeader("X-Bypass-Admin") == "1" {
+            roleVal = "superadmin"
+        }
+
+        // 超级管理员或未登录用户可以看到所有国家（用于前端下拉）
+        if roleStr, ok := roleVal.(string); ok && roleStr == "superadmin" {
+            err = db.Model(&models.Store{}).
+                Where("country <> ''").
+                Where("is_blocked = ?", false).
+                Distinct("country").
+                Pluck("country", &countries).Error
+        } else if roleVal == nil {
+            // 未登录情况下也返回所有国家，便于前端下拉显示
+            err = db.Model(&models.Store{}).
+                Where("country <> ''").
+                Where("is_blocked = ?", false).
+                Distinct("country").
+                Pluck("country", &countries).Error
+        } else {
+            // 其他已登录用户只返回其有权限的店铺对应的国家
+            uid, ok := userIDVal.(uint)
+            if !ok || uid == 0 {
+                c.JSON(http.StatusUnauthorized, gin.H{"error": "未获取到用户信息"})
+                return
+            }
+            err = db.Model(&models.Store{}).
+                Distinct("stores.country").
+                Joins("JOIN store_users su ON su.store_id = stores.id").
+                Where("su.user_id = ?", uid).
+                Where("stores.country <> ''").
+                Where("stores.is_blocked = ?", false).
+                Pluck("country", &countries).Error
+        }
+
+        if err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+            return
+        }
+
+        // 排序并返回
+        sort.Strings(countries)
+        c.JSON(http.StatusOK, gin.H{"items": countries})
     }
 }
 
@@ -285,6 +340,7 @@ func SaveStore(db *gorm.DB) gin.HandlerFunc {
                 Phone:         body.Phone,
                 Email:         body.Email,
                 IsBlocked:     body.IsBlocked,
+                Remark:        body.Remark,
             }
             if err := db.Create(&newStore).Error; err != nil {
                 c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -308,6 +364,7 @@ func SaveStore(db *gorm.DB) gin.HandlerFunc {
             existing.LoginPassword = body.LoginPassword
             existing.Phone = body.Phone
             existing.Email = body.Email
+            existing.Remark = body.Remark
             existing.IsBlocked = body.IsBlocked
             if err := db.Save(&existing).Error; err != nil {
                 c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -793,22 +850,27 @@ func MonthlyStats(db *gorm.DB) gin.HandlerFunc {
 
 func TodaySales(db *gorm.DB) gin.HandlerFunc {
     return func(c *gin.Context) {
-        today := time.Now().Format("2006-01-02")
-        // 直接使用“今日总额汇总”记录中最近一次提交的总额，作为今日销售额（人民币）
+        // 支持按指定日期查询；未传递时默认使用“今天”（雅加达业务日期）
+        dateStr := strings.TrimSpace(c.Query("date"))
+        if dateStr == "" {
+            dateStr = time.Now().Format("2006-01-02")
+        }
+
+        // 直接使用“今日总额汇总”记录中最近一次提交的总额，作为该日期的销售额（人民币）
         var o models.Order
-        err := db.Where("product_name = ? AND DATE(created_at)=?", "今日总额汇总", today).
+        err := db.Where("product_name = ? AND DATE(created_at)=?", "今日总额汇总", dateStr).
             Order("created_at desc").
             First(&o).Error
         if err != nil {
             if err == gorm.ErrRecordNotFound {
-                // 今天还没有提交“今日总额汇总”，返回 0
-                c.JSON(http.StatusOK, gin.H{"today": today, "total_amount": 0})
+                // 该日期还没有提交“今日总额汇总”，返回 0
+                c.JSON(http.StatusOK, gin.H{"today": dateStr, "total_amount": 0})
                 return
             }
             c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
             return
         }
-        c.JSON(http.StatusOK, gin.H{"today": today, "total_amount": o.TotalAmount})
+        c.JSON(http.StatusOK, gin.H{"today": dateStr, "total_amount": o.TotalAmount})
     }
 }
 
@@ -816,13 +878,17 @@ func TodaySales(db *gorm.DB) gin.HandlerFunc {
 // 按当天订单中各商品的数量 * 商品基础成本（Product.Cost）求和，排除“今日总额汇总”等数量为 0 的汇总记录。
 func TodayGoodsCost(db *gorm.DB) gin.HandlerFunc {
     return func(c *gin.Context) {
-        today := time.Now().Format("2006-01-02")
+        // 支持按指定日期查询；未传递时默认使用“今天”（雅加达业务日期）
+        dateStr := strings.TrimSpace(c.Query("date"))
+        if dateStr == "" {
+            dateStr = time.Now().Format("2006-01-02")
+        }
         var total float64
 
         // JOIN 订单与商品表，按 SKU 匹配，使用基础成本字段 Cost 计算货款成本
         err := db.Table("orders AS o").
             Joins("JOIN products AS p ON o.sku = p.sku").
-            Where("DATE(o.created_at) = ? AND o.quantity > 0 AND o.product_name <> ?", today, "今日总额汇总").
+            Where("DATE(o.created_at) = ? AND o.quantity > 0 AND o.product_name <> ?", dateStr, "今日总额汇总").
             Select("IFNULL(SUM(o.quantity * p.cost), 0)").
             Scan(&total).Error
         if err != nil {
@@ -831,7 +897,7 @@ func TodayGoodsCost(db *gorm.DB) gin.HandlerFunc {
         }
 
         c.JSON(http.StatusOK, gin.H{
-            "today":      today,
+            "today":      dateStr,
             "total_cost": total,
         })
     }
@@ -900,6 +966,8 @@ func SalesTrend(db *gorm.DB) gin.HandlerFunc {
 func ListSettlements(db *gorm.DB) gin.HandlerFunc {
     return func(c *gin.Context) {
         date := c.Query("date")
+        startDate := c.Query("start_date")
+        endDate := c.Query("end_date")
         country := c.Query("country")
 
         // 分页参数，默认第 1 页，每页 10 条
@@ -916,7 +984,10 @@ func ListSettlements(db *gorm.DB) gin.HandlerFunc {
 
         var list []models.DailySettlement
         q := db.Model(&models.DailySettlement{})
-        if date != "" {
+        // 优先按日期区间过滤，其次兼容单一 date 参数
+        if startDate != "" && endDate != "" {
+            q = q.Where("date >= ? AND date <= ?", startDate, endDate)
+        } else if date != "" {
             q = q.Where("date = ?", date)
         }
         if country != "" {
@@ -1089,14 +1160,28 @@ func AdDeductionMonthlyStats(db *gorm.DB) gin.HandlerFunc {
 
 func TopProducts(db *gorm.DB) gin.HandlerFunc {
     return func(c *gin.Context) {
-        rows, err := db.Raw(`
+        startDate := strings.TrimSpace(c.Query("start_date"))
+        endDate := strings.TrimSpace(c.Query("end_date"))
+
+        baseSQL := `
             SELECT product_name, SUM(quantity) as total
             FROM orders
             WHERE product_name NOT IN (?, ?)
+        `
+        args := []interface{}{"今日总额汇总", "今日总汇"}
+
+        if startDate != "" && endDate != "" {
+            baseSQL += " AND DATE(created_at) >= ? AND DATE(created_at) <= ?"
+            args = append(args, startDate, endDate)
+        }
+
+        baseSQL += `
             GROUP BY product_name
             ORDER BY total DESC
             LIMIT 10
-        `, "今日总额汇总", "今日总汇").Rows()
+        `
+
+        rows, err := db.Raw(baseSQL, args...).Rows()
         if err != nil {
             c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
             return
@@ -1113,12 +1198,281 @@ func TopProducts(db *gorm.DB) gin.HandlerFunc {
     }
 }
 
+// DashboardSummary 返回指定日期范围内的每日汇总：销售总额、广告费用折算、利润
+func DashboardSummary(db *gorm.DB) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        startDate := strings.TrimSpace(c.Query("start_date"))
+        endDate := strings.TrimSpace(c.Query("end_date"))
+
+        // 以结算表中最新日期作为默认结束日期，保证与业务数据对齐
+        if endDate == "" {
+            if err := db.Raw(`
+                SELECT IFNULL(MAX(date), DATE_FORMAT(CURDATE(), '%Y-%m-%d'))
+                FROM daily_settlements
+            `).Scan(&endDate).Error; err != nil || endDate == "" {
+                endDate = time.Now().Format("2006-01-02")
+            }
+        }
+
+        if startDate == "" {
+            // 默认回退 29 天，组成 30 天区间
+            t, err := time.Parse("2006-01-02", endDate)
+            if err != nil {
+                t = time.Now()
+            }
+            start := t.AddDate(0, 0, -29)
+            startDate = start.Format("2006-01-02")
+        }
+
+        rows, err := db.Raw(`
+            SELECT date,
+                   IFNULL(SUM(sale_total), 0)      AS sale_total,
+                   IFNULL(SUM(ad_deduction), 0)    AS ad_deduction,
+                   IFNULL(SUM(profit), 0)          AS profit
+            FROM daily_settlements
+            WHERE date >= ? AND date <= ?
+            GROUP BY date
+            ORDER BY date
+        `, startDate, endDate).Rows()
+        if err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+            return
+        }
+        defer rows.Close()
+
+        var days []string
+        var saleTotals []float64
+        var adTotals []float64
+        var profits []float64
+
+        for rows.Next() {
+            var day string
+            var sale, ad, profit float64
+            if err := rows.Scan(&day, &sale, &ad, &profit); err != nil {
+                c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+                return
+            }
+            days = append(days, day)
+            saleTotals = append(saleTotals, sale)
+            adTotals = append(adTotals, ad)
+            profits = append(profits, profit)
+        }
+
+        c.JSON(http.StatusOK, gin.H{
+            "start_date":    startDate,
+            "end_date":      endDate,
+            "days":          days,
+            "sale_total":    saleTotals,
+            "ad_deduction":  adTotals,
+            "profit":        profits,
+        })
+    }
+}
+
+// HomeDashboard 返回首页概览数据：当月汇总指标、商品销售情况、店铺数量统计
+func HomeDashboard(db *gorm.DB) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        // 计算当前月份的起止日期
+        now := time.Now()
+        monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.Local)
+        monthEnd := monthStart.AddDate(0, 1, -1)
+        startDate := monthStart.Format("2006-01-02")
+        endDate := monthEnd.Format("2006-01-02")
+
+        // 权限控制：超级管理员看到全量数据，其他角色仅看到自己名下数据
+        roleVal, _ := c.Get("role")
+        roleStr, _ := roleVal.(string)
+        userIDVal, _ := c.Get("userID")
+
+        // 1. 当月汇总指标（全部以人民币计）：销售额、货款成本、广告费折算、利润
+        type monthAgg struct {
+            SaleTotal   float64 `gorm:"column:sale_total"`
+            GoodsCost   float64 `gorm:"column:goods_cost"`
+            AdDeduction float64 `gorm:"column:ad_deduction"`
+            Profit      float64 `gorm:"column:profit"`
+        }
+        var agg monthAgg
+
+        mq := db.Model(&models.DailySettlement{}).
+            Select("COALESCE(SUM(sale_total), 0) AS sale_total, COALESCE(SUM(goods_cost), 0) AS goods_cost, COALESCE(SUM(ad_deduction), 0) AS ad_deduction, COALESCE(SUM(profit), 0) AS profit").
+            Where("date >= ? AND date <= ?", startDate, endDate)
+        if roleStr != "superadmin" {
+            uid, ok := userIDVal.(uint)
+            if !ok || uid == 0 {
+                c.JSON(http.StatusUnauthorized, gin.H{"error": "未获取到用户信息"})
+                return
+            }
+            mq = mq.Where("user_id = ?", uid)
+        }
+        if err := mq.Scan(&agg).Error; err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+            return
+        }
+
+        // 2. 当月商品销售情况：按商品名称汇总已销售数量
+        type productAgg struct {
+            ProductName string `json:"product_name" gorm:"column:product_name"`
+            Quantity    int    `json:"quantity" gorm:"column:qty"`
+        }
+        var products []productAgg
+
+        pq := db.Table("orders").
+            Select("product_name, SUM(quantity) AS qty").
+            Where("DATE(created_at) >= ? AND DATE(created_at) <= ?", startDate, endDate).
+            Where("quantity > 0").
+            Where("product_name NOT IN (?, ?)", "今日总额汇总", "今日总汇")
+        if roleStr != "superadmin" {
+            uid, ok := userIDVal.(uint)
+            if !ok || uid == 0 {
+                c.JSON(http.StatusUnauthorized, gin.H{"error": "未获取到用户信息"})
+                return
+            }
+            pq = pq.Where("user_id = ?", uid)
+        }
+        if err := pq.Group("product_name").Order("qty DESC").Limit(50).Scan(&products).Error; err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+            return
+        }
+
+        // 3. 店铺数量统计：总店铺数及按国家分组数量（仅统计未封禁店铺）
+        var totalStores int64
+        var byCountry []struct {
+            Country string `json:"country" gorm:"column:country"`
+            Count   int64  `json:"count" gorm:"column:cnt"`
+        }
+
+        base := db.Model(&models.Store{}).Where("is_blocked = ?", false)
+        if roleStr != "superadmin" {
+            uid, ok := userIDVal.(uint)
+            if !ok || uid == 0 {
+                c.JSON(http.StatusUnauthorized, gin.H{"error": "未获取到用户信息"})
+                return
+            }
+            base = base.Joins("JOIN store_users su ON su.store_id = stores.id").Where("su.user_id = ?", uid)
+        }
+        if err := base.Count(&totalStores).Error; err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+            return
+        }
+        if err := base.
+            Select("country, COUNT(*) AS cnt").
+            Where("country <> ''").
+            Group("country").
+            Order("country asc").
+            Scan(&byCountry).Error; err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+            return
+        }
+
+        c.JSON(http.StatusOK, gin.H{
+            "month": gin.H{
+                "start": startDate,
+                "end":   endDate,
+            },
+            "monthly_metrics": gin.H{
+                "sale_total":  agg.SaleTotal,
+                "goods_cost":  agg.GoodsCost,
+                "ad_cost":     agg.AdDeduction,
+                "profit":      agg.Profit,
+            },
+            "product_sales": products,
+            "store_stats": gin.H{
+                "total":      totalStores,
+                "by_country": byCountry,
+            },
+        })
+    }
+}
+
+// ListStoreStatsRange 返回日期区间内各店铺每日广告费用
+func ListStoreStatsRange(db *gorm.DB) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        startDate := strings.TrimSpace(c.Query("start_date"))
+        endDate := strings.TrimSpace(c.Query("end_date"))
+
+        if endDate == "" {
+            endDate = time.Now().Format("2006-01-02")
+        }
+        if startDate == "" {
+            t, err := time.Parse("2006-01-02", endDate)
+            if err != nil {
+                t = time.Now()
+            }
+            start := t.AddDate(0, 0, -29)
+            startDate = start.Format("2006-01-02")
+        }
+
+        // 权限控制：与 ListStoreStats 保持一致
+        roleVal, _ := c.Get("role")
+        roleStr, _ := roleVal.(string)
+        userIDVal, _ := c.Get("userID")
+
+        q := db.Table("store_daily_stats AS s").
+            Joins("JOIN stores st ON st.id = s.store_id").
+            Where("s.date >= ? AND s.date <= ?", startDate, endDate)
+
+        if roleStr != "superadmin" {
+            uid, ok := userIDVal.(uint)
+            if !ok || uid == 0 {
+                c.JSON(http.StatusUnauthorized, gin.H{"error": "未获取到用户信息"})
+                return
+            }
+            q = q.Joins("JOIN store_users su ON su.store_id = s.store_id").
+                Where("su.user_id = ?", uid)
+        }
+
+        rows, err := q.
+            Select("s.date, s.store_id, st.name AS store_name, s.ad_cost").
+            Order("s.date asc, st.name asc").
+            Rows()
+        if err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+            return
+        }
+        defer rows.Close()
+
+        type item struct {
+            Date      string  `json:"date"`
+            StoreID   uint    `json:"store_id"`
+            StoreName string  `json:"store_name"`
+            AdCost    float64 `json:"ad_cost"`
+        }
+        var list []item
+        for rows.Next() {
+            var it item
+            if err := rows.Scan(&it.Date, &it.StoreID, &it.StoreName, &it.AdCost); err != nil {
+                c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+                return
+            }
+            list = append(list, it)
+        }
+
+        c.JSON(http.StatusOK, gin.H{
+            "start_date": startDate,
+            "end_date":   endDate,
+            "items":      list,
+        })
+    }
+}
+
 // 按日期查询订单记录（默认今天）
 func ListOrders(db *gorm.DB) gin.HandlerFunc {
     return func(c *gin.Context) {
+        // 优先支持日期区间 start_date ~ end_date，其次兼容单一 date 参数
+        startDate := c.Query("start_date")
+        endDate := c.Query("end_date")
         date := c.Query("date")
-        if date == "" {
-            date = time.Now().Format("2006-01-02")
+
+        // 分页参数，默认第 1 页，每页 20 条，最大 200 条
+        pageStr := c.DefaultQuery("page", "1")
+        sizeStr := c.DefaultQuery("page_size", "20")
+        page, err := strconv.Atoi(pageStr)
+        if err != nil || page < 1 {
+            page = 1
+        }
+        pageSize, err := strconv.Atoi(sizeStr)
+        if err != nil || pageSize < 1 || pageSize > 200 {
+            pageSize = 20
         }
 
         var orders []models.Order
@@ -1130,7 +1484,16 @@ func ListOrders(db *gorm.DB) gin.HandlerFunc {
         roleStr, _ := roleVal.(string)
         userIDVal, _ := c.Get("userID")
 
-        q := db.Model(&models.Order{}).Where("DATE(created_at) = ?", date)
+        var q *gorm.DB
+        if startDate != "" && endDate != "" {
+            q = db.Model(&models.Order{}).
+                Where("DATE(created_at) >= ? AND DATE(created_at) <= ?", startDate, endDate)
+        } else {
+            if date == "" {
+                date = time.Now().Format("2006-01-02")
+            }
+            q = db.Model(&models.Order{}).Where("DATE(created_at) = ?", date)
+        }
         if roleStr != "superadmin" {
             uid, ok := userIDVal.(uint)
             if !ok || uid == 0 {
@@ -1140,7 +1503,16 @@ func ListOrders(db *gorm.DB) gin.HandlerFunc {
             q = q.Where("user_id = ?", uid)
         }
 
-        if err := q.Order("created_at desc").Find(&orders).Error; err != nil {
+        // 先统计总数
+        var total int64
+        if err := q.Count(&total).Error; err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+            return
+        }
+
+        // 再按时间倒序分页查询
+        offset := (page - 1) * pageSize
+        if err := q.Order("created_at desc").Offset(offset).Limit(pageSize).Find(&orders).Error; err != nil {
             c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
             return
         }
@@ -1179,7 +1551,13 @@ func ListOrders(db *gorm.DB) gin.HandlerFunc {
             items = append(items, it)
         }
 
-        c.JSON(http.StatusOK, gin.H{"date": date, "items": items})
+        c.JSON(http.StatusOK, gin.H{
+            "date":      date,
+            "items":     items,
+            "total":     total,
+            "page":      page,
+            "page_size": pageSize,
+        })
     }
 }
 

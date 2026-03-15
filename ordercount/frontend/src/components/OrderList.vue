@@ -6,24 +6,24 @@
     <div style="margin-bottom:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
       <span>选择日期：</span>
       <el-date-picker
-        v-model="date"
-        type="date"
-        placeholder="选择日期"
+        v-model="dateRange"
+        type="daterange"
+        range-separator="至"
+        start-placeholder="开始日期"
+        end-placeholder="结束日期"
         format="YYYY-MM-DD"
         value-format="YYYY-MM-DD"
         @change="load"
       />
-      <span>国家：</span>
-      <el-select v-model="country" placeholder="全部国家" style="width:140px;" @change="load" clearable>
-        <el-option label="全部" :value="''" />
-        <el-option label="菲律宾" value="菲律宾" />
-        <el-option label="印尼" value="印尼" />
-        <el-option label="马来西亚" value="马来西亚" />
-      </el-select>
+        <span>国家：</span>
+        <el-select v-model="country" placeholder="全部国家" style="width:140px;" @change="load" clearable>
+          <el-option label="全部" :value="''" />
+          <el-option v-for="c in countries" :key="c" :label="c" :value="c" />
+        </el-select>
       <el-button size="small" @click="load">刷新</el-button>
       <span v-if="loading" style="font-size:12px;color:#909399;">加载中...</span>
     </div>
-    <el-table :data="items" size="small" border style="width:100%;">
+    <el-table :data="items" size="small" border style="width:100%;margin-bottom:10px;">
       <el-table-column prop="created_at" label="时间" width="260">
         <template #default="scope">
           <template v-if="editingId === scope.row.id">
@@ -58,17 +58,35 @@
       <el-table-column prop="currency" label="币种" width="80" />
       <el-table-column prop="total_amount" label="总额" />
     </el-table>
+    <div v-if="!loading" style="display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-size:12px;color:#909399;">
+        共 {{ total }} 条记录，每页 {{ pageSize }} 条
+      </div>
+      <el-pagination
+        background
+        layout="prev, pager, next"
+        :page-size="pageSize"
+        :current-page="currentPage"
+        :total="total"
+        @current-change="onPageChange"
+      />
+    </div>
   </el-card>
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue'
 import axios from 'axios'
+import { fetchCountries } from '../utils/countries'
 
-const date = ref('')
+const dateRange = ref([])
 const country = ref('')
+const countries = ref([])
 const items = ref([])
 const loading = ref(false)
+const currentPage = ref(1)
+const pageSize = ref(20)
+const total = ref(0)
 const editingId = ref(null)
 const editDate = ref('')
 
@@ -81,18 +99,34 @@ function formatTime(t) {
 }
 
 async function load() {
-  if (!date.value) return
   loading.value = true
   try {
-    const params = { date: date.value }
+    const params = {
+      page: currentPage.value,
+      page_size: pageSize.value,
+    }
+    if (Array.isArray(dateRange.value) && dateRange.value.length === 2) {
+      const [start, end] = dateRange.value
+      if (start && end) {
+        params.start_date = start
+        params.end_date = end
+      }
+    }
     if (country.value) params.country = country.value
     const res = await axios.get('/api/orders', { params })
     items.value = res.data?.items || []
+    total.value = typeof res.data?.total === 'number' ? res.data.total : items.value.length
   } catch (e) {
     items.value = []
+    total.value = 0
   } finally {
     loading.value = false
   }
+}
+
+function onPageChange(page) {
+  currentPage.value = page
+  load()
 }
 
 function onEditDate(row) {
@@ -133,7 +167,12 @@ onMounted(() => {
   const yyyy = today.getFullYear()
   const mm = String(today.getMonth() + 1).padStart(2, '0')
   const dd = String(today.getDate()).padStart(2, '0')
-  date.value = `${yyyy}-${mm}-${dd}`
+  const todayStr = `${yyyy}-${mm}-${dd}`
+  dateRange.value = [todayStr, todayStr]
   load()
+  ;(async () => {
+    const list = await fetchCountries()
+    countries.value = list || []
+  })()
 })
 </script>

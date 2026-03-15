@@ -13,6 +13,7 @@
     <el-container style="height:100%;">
       <el-aside class="layout-aside" width="200px" style="background:#fff;border-right:1px solid #ebeef5;">
         <el-menu :default-active="activeMenu" @select="onSelect" router="false">
+          <el-menu-item index="home">首页</el-menu-item>
           <el-menu-item index="stats">订单统计</el-menu-item>
           <el-menu-item v-if="canSeeSettlement" index="settlement">结账工具</el-menu-item>
           <el-menu-item v-if="canSeeProduct" index="product">商品管理</el-menu-item>
@@ -21,17 +22,24 @@
             <el-menu-item index="shop-manage">店铺管理</el-menu-item>
             <el-menu-item index="shop-info">现有店铺信息</el-menu-item>
           </el-sub-menu>
+          <el-menu-item index="exchange-tool">汇率小工具</el-menu-item>
+          <el-menu-item index="charts">图表统计</el-menu-item>
           <el-menu-item v-if="isSuperAdmin" index="users">用户管理</el-menu-item>
         </el-menu>
       </el-aside>
       <el-main class="layout-main">
         <ExchangeRatesBar style="margin-bottom:10px;" />
 
+        <!-- 首页概览视图 -->
+        <template v-if="activeMenu === 'home'">
+          <HomeDashboard />
+        </template>
+
         <!-- 订单统计视图 -->
-        <template v-if="activeMenu === 'stats'">
+        <template v-else-if="activeMenu === 'stats'">
           <el-row :gutter="20">
             <el-col :span="12">
-              <OrderForm @refresh="refreshAll" />
+              <OrderForm @refresh="refreshAll" @go-shop-info="goShopInfo" />
             </el-col>
             <el-col :span="12">
               <TodaySales ref="todaySales" />
@@ -41,6 +49,11 @@
           </el-row>
           <el-divider />
           <OrderList />
+        </template>
+
+        <!-- 图表统计视图 -->
+        <template v-else-if="activeMenu === 'charts'">
+          <StatsDashboard />
         </template>
 
         <!-- 结账工具视图（根据权限控制） -->
@@ -68,6 +81,11 @@
         <template v-else-if="activeMenu === 'users' && isSuperAdmin">
           <UserManager :current-user="currentUser" />
         </template>
+        
+        <!-- 汇率小工具页面 -->
+        <template v-else-if="activeMenu === 'exchange-tool'">
+          <CurrencyConverter />
+        </template>
       </el-main>
     </el-container>
   </el-container>
@@ -77,11 +95,14 @@
 import { ref, computed } from 'vue'
 import axios from 'axios'
 import OrderForm from './components/OrderForm.vue'
+import HomeDashboard from './components/HomeDashboard.vue'
 import TodaySales from './components/TodaySales.vue'
 import TodayGoodsCost from './components/TodayGoodsCost.vue'
 import OrderCharts from './components/OrderCharts.vue'
+import StatsDashboard from './components/StatsDashboard.vue'
 import ProfitTool from './components/ProfitTool.vue'
 import ExchangeRatesBar from './components/ExchangeRatesBar.vue'
+import CurrencyConverter from './components/CurrencyConverter.vue'
 import SettlementList from './components/SettlementList.vue'
 import OrderList from './components/OrderList.vue'
 import ProductManager from './components/ProductManager.vue'
@@ -129,7 +150,8 @@ const savedMenu = typeof window !== 'undefined'
   ? window.localStorage.getItem(ACTIVE_MENU_STORAGE_KEY)
   : null
 // 兼容旧版本中使用的 'shop' 菜单索引，统一映射到新的 'shop-manage'
-const initialMenu = savedMenu === 'shop' ? 'shop-manage' : (savedMenu || 'stats')
+// 默认首页作为登录后的第一个页面
+const initialMenu = savedMenu === 'shop' ? 'shop-manage' : (savedMenu || 'home')
 const activeMenu = ref(initialMenu)
 
 // 如果当前用户无权限，但上次记住的是结账工具/商品管理/用户管理，则强制回到订单统计
@@ -149,6 +171,11 @@ function refreshAll() {
   todaySales.value && todaySales.value.load()
   todayGoodsCost.value && todayGoodsCost.value.load()
   orderCharts.value && orderCharts.value.load()
+}
+
+function goShopInfo() {
+  // 复用菜单选择逻辑及权限判断
+  onSelect('shop-info')
 }
 
 function onSelect(key) {
@@ -175,13 +202,18 @@ function onSelect(key) {
 
 function onLoggedIn(user) {
 	currentUser.value = user
-	// 登录后根据角色调整当前菜单
+  // 登录后优先进入首页
+  activeMenu.value = 'home'
+  if (typeof window !== 'undefined') {
+    window.localStorage.setItem(ACTIVE_MENU_STORAGE_KEY, 'home')
+  }
+  // 再根据角色校验当前菜单是否允许访问（如果后续手动切换）
   if ((!canSeeSettlement.value && activeMenu.value === 'settlement') ||
   (!canSeeShop.value && (activeMenu.value === 'shop-manage' || activeMenu.value === 'shop-info')) ||
       (!isSuperAdmin.value && activeMenu.value === 'users')) {
-    activeMenu.value = 'stats'
+    activeMenu.value = 'home'
     if (typeof window !== 'undefined') {
-      window.localStorage.setItem(ACTIVE_MENU_STORAGE_KEY, 'stats')
+      window.localStorage.setItem(ACTIVE_MENU_STORAGE_KEY, 'home')
     }
   }
 }

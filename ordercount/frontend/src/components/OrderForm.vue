@@ -1,15 +1,24 @@
 <template>
   <el-card shadow="hover" style="margin-bottom:20px;">
-    <template #header>今日站点出单详情</template>
+    <template #header>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+        <span>今日站点出单详情</span>
+        <el-date-picker
+          v-model="selectedDate"
+          type="date"
+          size="small"
+          value-format="YYYY-MM-DD"
+          placeholder="选择日期"
+        />
+      </div>
+    </template>
     <el-form :model="form" ref="formRef" label-width="90px" @submit.prevent>
       <el-row :gutter="10">
         <!-- 第一行：国家 -->
         <el-col :span="12">
           <el-form-item label="国家">
             <el-select v-model="form.country" placeholder="请选择国家">
-              <el-option label="菲律宾" value="菲律宾" />
-              <el-option label="印尼" value="印尼" />
-              <el-option label="马来西亚" value="马来西亚" />
+              <el-option v-for="c in countries" :key="c" :label="c" :value="c" />
             </el-select>
           </el-form-item>
         </el-col>
@@ -50,7 +59,10 @@
       <el-form-item label="今日总额">
         <el-input-number v-model="form.total_amount" :min="0" :step="0.01" />
         <el-button type="success" style="margin-left:10px;" @click="onSubmitTotal">
-          保存今日总额
+          保存销售总额
+        </el-button>
+        <el-button type="primary" style="margin-left:10px;" @click="onGoTodayAd">
+          今日广告
         </el-button>
       </el-form-item>
     </el-form>
@@ -149,17 +161,30 @@
   </el-card>
 </template>
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import axios from 'axios'
-const emit = defineEmits(['refresh'])
+import { fetchCountries } from '../utils/countries'
+const emit = defineEmits(['refresh', 'go-shop-info'])
 const formRef = ref()
+const selectedDate = ref('')
 // 平台、订单号、SKU 文本输入去掉，保留 SKU 下拉与数量，总额改为汇总后单独填写
 const form = ref({ country: '印尼', product_name: '', sku: '', quantity: 1, total_amount: 0 })
+const countries = ref([])
 const msg = ref('')
 const products = ref([])
 const submittedOrders = ref([])
 const editingId = ref(null)
 const editForm = ref({ sku: '', quantity: 0 })
+
+function initSelectedDate() {
+  if (!selectedDate.value) {
+    const d = new Date()
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    selectedDate.value = `${y}-${m}-${day}`
+  }
+}
 
 // 按商品名汇总本次会话中各商品的总数量（不含“今日总额汇总”等数量为 0 的记录）
 const productSummary = computed(() => {
@@ -185,7 +210,11 @@ async function loadProducts() {
 // 加载当天所有订单记录，用于“今日已提交出单记录”列表
 async function loadTodayOrders() {
   try {
-    const res = await axios.get('/api/orders')
+    const params = {}
+    if (selectedDate.value) {
+      params.date = selectedDate.value
+    }
+    const res = await axios.get('/api/orders', { params })
     submittedOrders.value = res.data?.items || []
   } catch (e) {
     submittedOrders.value = []
@@ -199,6 +228,16 @@ function onSkuChange(val) {
 
 onMounted(() => {
   loadProducts()
+  initSelectedDate()
+  ;(async () => {
+    const list = await fetchCountries()
+    countries.value = list && list.length ? list : ['菲律宾', '印尼', '马来西亚']
+    // 如果当前国家为空或为默认占位，尝试使用第一个
+    if (!form.value.country && countries.value.length) form.value.country = countries.value[0]
+  })()
+})
+
+watch(selectedDate, () => {
   loadTodayOrders()
 })
 // 提交单条 SKU 出单明细：不需要填写总额，总额统一在最后单独保存
@@ -265,6 +304,10 @@ async function onSubmitTotal() {
   }else{
     msg.value = res.data.error || '保存今日总额失败'
   }
+}
+
+function onGoTodayAd() {
+  emit('go-shop-info')
 }
 
 function onReset(){

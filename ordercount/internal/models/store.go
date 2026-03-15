@@ -14,6 +14,7 @@ type Store struct {
     LoginPassword string `json:"login_password" gorm:"size:255"` // 店铺登录密码（明文存储，仅内部使用）
     Phone         string `json:"phone" gorm:"size:30"`     // 绑定手机号
     Email         string `json:"email" gorm:"size:100"`    // 绑定邮箱
+    Remark        string `json:"remark" gorm:"size:255"`   // 备注
 
     IsBlocked     bool   `json:"is_blocked" gorm:"default:false"` // 是否封禁，默认未封禁
 
