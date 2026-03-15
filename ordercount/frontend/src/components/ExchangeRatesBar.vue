@@ -1,20 +1,42 @@
 <template>
   <el-card shadow="never" body-style="padding: 10px 20px;">
-    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;">
-      <div style="font-weight:bold;">当前主要汇率（1 人民币 ≈ ? 外币）</div>
-      <div v-if="loading" style="color:#909399;font-size:12px;">正在获取最新汇率...</div>
-      <div v-else-if="error" style="color:#F56C6C;font-size:12px;">{{ error }}</div>
-      <div v-else style="display:flex;gap:16px;font-size:13px;flex-wrap:wrap;">
-        <span>菲律宾 (PHP)：1 CNY ≈ {{ formatRate(rates.PHP) }} PHP</span>
-        <span>印尼 (IDR)：1 CNY ≈ {{ formatRate(rates.IDR) }} IDR</span>
-        <span>马来西亚 (MYR)：1 CNY ≈ {{ formatRate(rates.MYR) }} MYR</span>
+    <div class="exchange-bar-header">
+      <div class="exchange-bar-title">
+        <span class="title-main">当前主要汇率</span>
+        <span class="title-sub">（1 人民币 ≈ ? 外币）</span>
+      </div>
+      <div class="exchange-bar-status">
+        <template v-if="loading">
+          <span class="status-loading">正在获取最新汇率...</span>
+        </template>
+        <template v-else-if="error">
+          <span class="status-error">{{ error }}</span>
+        </template>
+        <template v-else-if="lastUpdated">
+          <span class="status-updated">更新于 {{ lastUpdated }}</span>
+        </template>
+      </div>
+    </div>
+
+    <div class="exchange-bar-content" :class="{ 'exchange-bar--dim': !!error }">
+      <div
+        v-for="item in displayRates"
+        :key="item.code"
+        class="exchange-rate-item"
+      >
+        <span class="rate-label">{{ item.label }} ({{ item.code }})：</span>
+        <span class="rate-value">
+          1 CNY ≈
+          <span class="rate-number">{{ formatRate(item.value) }}</span>
+          <span class="rate-code">{{ item.code }}</span>
+        </span>
       </div>
     </div>
   </el-card>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import axios from 'axios'
 
 // 后端返回的 rates 含义：1 人民币 ≈ rates[币种] 外币
@@ -22,6 +44,13 @@ import axios from 'axios'
 const rates = ref({ PHP: 0, IDR: 0, MYR: 0 })
 const loading = ref(false)
 const error = ref('')
+const lastUpdated = ref('')
+
+const displayRates = computed(() => [
+	{ code: 'PHP', label: '菲律宾', value: rates.value.PHP },
+	{ code: 'IDR', label: '印尼', value: rates.value.IDR },
+	{ code: 'MYR', label: '马来西亚', value: rates.value.MYR },
+])
 
 function formatRate(v) {
   const n = Number(v) || 0
@@ -41,12 +70,105 @@ async function loadRates() {
       IDR: res.data?.rates?.IDR || 0,
       MYR: res.data?.rates?.MYR || 0,
     }
+    lastUpdated.value = new Date().toLocaleString()
   } catch (e) {
-    error.value = '汇率获取失败，请稍后重试'
+    if (!rates.value.PHP && !rates.value.IDR && !rates.value.MYR) {
+      error.value = '汇率获取失败，请稍后重试'
+    } else {
+      error.value = '汇率更新失败，已展示上次成功的数据'
+    }
   } finally {
     loading.value = false
   }
 }
+let timer = null
 
-onMounted(loadRates)
+onMounted(() => {
+  loadRates()
+  timer = setInterval(loadRates, 10 * 60 * 1000)
+})
+
+onBeforeUnmount(() => {
+  if (timer) {
+    clearInterval(timer)
+    timer = null
+  }
+})
 </script>
+
+<style scoped>
+.exchange-bar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.exchange-bar-title {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.title-main {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.title-sub {
+  font-size: 12px;
+  color: #909399;
+}
+
+.exchange-bar-status {
+  font-size: 12px;
+}
+
+.status-loading {
+  color: #909399;
+}
+
+.status-error {
+  color: #f56c6c;
+}
+
+.status-updated {
+  color: #909399;
+}
+
+.exchange-bar-content {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  font-size: 13px;
+}
+
+.exchange-bar--dim {
+  opacity: 0.8;
+}
+
+.exchange-rate-item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.rate-label {
+  color: #606266;
+}
+
+.rate-value {
+  color: #303133;
+}
+
+.rate-number {
+  font-weight: 600;
+  margin: 0 2px;
+}
+
+.rate-code {
+  color: #909399;
+  margin-left: 2px;
+}
+</style>

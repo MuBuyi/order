@@ -43,6 +43,7 @@
         <el-button plain @click="refreshRates">刷新汇率</el-button>
         <div style="margin-left:8px;color:#999">更新时间：{{ lastUpdated }} 数据仅供参考</div>
       </div>
+
     </div>
   </div>
 </template>
@@ -152,7 +153,6 @@ function swap() {
 function refreshRates() {
   loadRates()
 }
-
 onMounted(async () => {
   await loadRates()
   doConvert()
@@ -169,11 +169,13 @@ h3 { margin: 0; }
 .cc-main-row {
   margin-top: 12px;
   display: flex;
-  align-items: center;
-  gap: 8px;
+  align-items: stretch;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 .cc-card {
-  width: 300px;
+  flex: 1 1 320px;
+  min-width: 260px;
 }
 .cc-input :deep(.el-input__wrapper) {
   height: 36px;
@@ -183,7 +185,21 @@ h3 { margin: 0; }
   padding: 0 8px;
 }
 .cc-select {
-  width: 120px;
+  width: 150px;
+}
+.cc-select :deep(.el-select__wrapper) {
+  border-color: transparent !important;
+  box-shadow: none !important;
+  background-color: transparent;
+}
+.cc-select :deep(.el-select__selection) {
+  display: flex;
+  justify-content: center !important;
+  width: 100%;
+}
+.cc-select :deep(.el-select__selected-item) {
+  width: 100%;
+  text-align: center;
 }
 .cc-scale {
   margin-top: 2px;
@@ -197,6 +213,8 @@ h3 { margin: 0; }
   color: #409EFF;
   cursor: pointer;
   user-select: none;
+  padding: 0 4px;
+  align-self: center;
 }
 .cc-swap:hover {
   color: #66b1ff;
