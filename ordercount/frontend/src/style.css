@@ -51,3 +51,33 @@ body {
   padding: 16px;
   box-sizing: border-box;
 }
+
+/* 移动端优化：在小屏幕上不再使用固定布局，改为上下结构，方便滚动浏览 */
+@media (max-width: 768px) {
+  body {
+    overflow: auto;
+  }
+
+  .layout-header {
+    position: relative;
+  }
+
+  .layout-aside {
+    position: relative;
+    top: 0;
+    bottom: auto;
+    left: 0;
+    width: 100% !important;
+    height: auto;
+    overflow-x: auto;
+    overflow-y: hidden;
+    white-space: nowrap;
+  }
+
+  .layout-main {
+    margin-top: 0;
+    margin-left: 0;
+    height: auto;
+    min-height: calc(100vh - 60px);
+  }
+}

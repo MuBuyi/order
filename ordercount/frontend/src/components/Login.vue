@@ -7,7 +7,7 @@
         <template #header>
           <div class="login-title">订单统计管理后台</div>
         </template>
-        <el-form :model="form" label-width="72px" @submit.prevent>
+        <el-form :model="form" label-width="72px" @submit.prevent="onLogin">
           <el-form-item label="用户名">
             <el-input v-model="form.username" autocomplete="off" />
           </el-form-item>

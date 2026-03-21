@@ -1,6 +1,7 @@
 package handlers
 
 import (
+    "log"
     "net/http"
     "os"
     "strings"
@@ -18,7 +19,13 @@ var jwtSecret []byte
 
 func init() {
     s := os.Getenv("JWT_SECRET")
+    env := os.Getenv("APP_ENV")
     if s == "" {
+        // 生产环境必须显式配置 JWT_SECRET，避免使用弱默认值
+        if env == "prod" || env == "production" {
+            log.Fatal("JWT_SECRET must be set in production environment")
+        }
+        // 非生产环境仍允许使用默认值，便于本地开发
         s = "ordercount-secret"
     }
     jwtSecret = []byte(s)
@@ -112,14 +119,6 @@ func Login(db *gorm.DB) gin.HandlerFunc {
 // AuthMiddleware 解析 JWT，将用户信息放到上下文中
 func AuthMiddleware() gin.HandlerFunc {
     return func(c *gin.Context) {
-        // 调试入口：允许用特殊头绕过登录（本地调试用）
-        if c.GetHeader("X-Bypass-Admin") == "1" {
-            c.Set("userID", uint(0))
-            c.Set("username", "bypass")
-            c.Set("role", "superadmin")
-            c.Next()
-            return
-        }
         auth := c.GetHeader("Authorization")
         if auth == "" || !strings.HasPrefix(auth, "Bearer ") {
             c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "未登录"})

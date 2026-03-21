@@ -248,8 +248,9 @@ func main() {
 
 	// 启动一个后台协程，每天在配置的时间通过企微机器人推送一次“结算提醒”
 	go func() {
-		// 默认时间 00:00（雅加达时间），可通过 wecom.settlement_push_time 覆盖
-		hour, minute := 0, 0
+		// 默认时间 23:50（北京时间），可通过 wecom.settlement_push_time 覆盖
+		// 配置格式为 "HH:MM"，按北京时间解释，例如 "23:50" 表示每天北京时间 23:50。
+		hour, minute := 23, 50
 		if wecomSettlementPushTime != "" {
 			if len(wecomSettlementPushTime) == 5 {
 				if h := wecomSettlementPushTime[0:2]; h >= "00" && h <= "23" {
@@ -262,19 +263,22 @@ func main() {
 				}
 			}
 		}
-
-		// 使用全局本地时区（已在 main 开头设置为 Asia/Jakarta）计算下一次推送时间
-		loc := time.Local
+		// 使用北京时间时区计算下一次推送时间
+		bjLoc, err := time.LoadLocation("Asia/Shanghai")
+		if err != nil {
+			log.Printf("[settlement-scheduler] 加载 Asia/Shanghai 时区失败，将使用本地时区：%v", err)
+			bjLoc = time.Local
+		}
 		for {
-			nowLocal := time.Now().In(loc)
-			nextLocal := time.Date(nowLocal.Year(), nowLocal.Month(), nowLocal.Day(), hour, minute, 0, 0, loc)
-			if !nextLocal.After(nowLocal) {
-				// 如果今天的推送时间已过，则推到明天同一时间（雅加达时间）
-				nextLocal = nextLocal.Add(24 * time.Hour)
+			nowBJ := time.Now().In(bjLoc)
+			nextBJ := time.Date(nowBJ.Year(), nowBJ.Month(), nowBJ.Day(), hour, minute, 0, 0, bjLoc)
+			if !nextBJ.After(nowBJ) {
+				// 如果今天的推送时间已过，则推到明天同一时间（北京时间）
+				nextBJ = nextBJ.Add(24 * time.Hour)
 			}
 
-			sleepDuration := nextLocal.Sub(nowLocal)
-			log.Printf("[settlement-scheduler] 下次每日结算提醒推送时间（雅加达时间）：%s", nextLocal.Format(time.RFC3339))
+			sleepDuration := nextBJ.Sub(nowBJ)
+			log.Printf("[settlement-scheduler] 下次每日结算提醒推送时间（北京时间）：%s", nextBJ.Format(time.RFC3339))
 			time.Sleep(sleepDuration)
 
 			// 计算要推送的日期：前一天（按当前全局本地时区，即雅加达日期）

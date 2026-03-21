@@ -1533,6 +1533,13 @@ func ListOrders(db *gorm.DB) gin.HandlerFunc {
         }
 
         items := make([]item, 0, len(orders))
+
+        // 将展示给前端的时间统一转换为北京时间
+        beijingLoc, err := time.LoadLocation("Asia/Shanghai")
+        if err != nil {
+            beijingLoc = time.Local
+        }
+
         for _, o := range orders {
             it := item{
                 ID:          o.ID,
@@ -1546,7 +1553,7 @@ func ListOrders(db *gorm.DB) gin.HandlerFunc {
                 Currency:    o.Currency,
             }
             if !o.CreatedAt.IsZero() {
-                it.CreatedAt = o.CreatedAt.Format("2006-01-02 15:04:05")
+                it.CreatedAt = o.CreatedAt.In(beijingLoc).Format("2006-01-02 15:04:05")
             }
             items = append(items, it)
         }
