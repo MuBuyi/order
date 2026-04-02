@@ -70,6 +70,55 @@
         </el-card>
       </el-col>
     </el-row>
+
+    <el-card shadow="hover" style="margin-bottom:20px;">
+      <template #header>历史月度数据（销售额 / 广告 / 利润）</template>
+      <div ref="monthlyMetricsRef" style="height:300px;width:100%;"></div>
+    </el-card>
+
+    <el-card shadow="hover" style="margin-bottom:20px;">
+      <template #header>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+          <span>指定月份详情</span>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <el-date-picker
+              v-model="detailMonth"
+              type="month"
+              placeholder="选择年月（默认全部）"
+              format="YYYY-MM"
+              value-format="YYYY-MM"
+              size="small"
+              style="width:160px;"
+              clearable
+              @change="onLoadDetail"
+            />
+            <el-button size="small" type="primary" @click="onLoadDetail">查询</el-button>
+            <el-button size="small" @click="onResetDetail">重置</el-button>
+          </div>
+        </div>
+      </template>
+      <el-table :data="detailRows" size="small" border v-loading="detailLoading" style="width:100%;">
+        <el-table-column prop="date" label="日期" width="120" />
+        <el-table-column prop="sale_total" label="销售额" min-width="120">
+          <template #default="scope">￥{{ formatNumber(scope.row.sale_total) }}</template>
+        </el-table-column>
+        <el-table-column prop="goods_cost" label="货款成本" min-width="120">
+          <template #default="scope">￥{{ formatNumber(scope.row.goods_cost) }}</template>
+        </el-table-column>
+        <el-table-column prop="ad_deduction" label="广告费折算" min-width="120">
+          <template #default="scope">￥{{ formatNumber(scope.row.ad_deduction) }}</template>
+        </el-table-column>
+        <el-table-column prop="platform_fee" label="平台费" min-width="120">
+          <template #default="scope">￥{{ formatNumber(scope.row.platform_fee) }}</template>
+        </el-table-column>
+        <el-table-column prop="profit" label="利润" min-width="120">
+          <template #default="scope">￥{{ formatNumber(scope.row.profit) }}</template>
+        </el-table-column>
+      </el-table>
+      <div v-if="!detailLoading && detailRows.length === 0" style="margin-top:10px;font-size:12px;color:#909399;text-align:center;">
+        暂无数据
+      </div>
+    </el-card>
   </div>
 </template>
 
@@ -87,6 +136,13 @@ const storeStats = ref({ total: 0, by_country: [] })
 
 const profitTrendRef = ref(null)
 let profitTrendChart
+
+const monthlyMetricsRef = ref(null)
+let monthlyMetricsChart
+
+const detailMonth = ref('')
+const detailRows = ref([])
+const detailLoading = ref(false)
 
 const profitStyle = computed(() => ({
   fontSize: '22px',
@@ -177,6 +233,115 @@ async function loadProfitTrend(start, end) {
   }
 }
 
+function renderMonthlyMetrics(saleArr, adArr, profitArr) {
+  nextTick(() => {
+    if (!monthlyMetricsChart && monthlyMetricsRef.value) {
+      monthlyMetricsChart = echarts.init(monthlyMetricsRef.value)
+    }
+    if (!monthlyMetricsChart) return
+
+    const months = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月']
+
+    const hasData = (arr) => Array.isArray(arr) && arr.some(v => Number(v || 0) !== 0)
+    if (!hasData(saleArr) && !hasData(adArr) && !hasData(profitArr)) {
+      monthlyMetricsChart.clear()
+      monthlyMetricsChart.setOption({
+        title: { text: '历史月度数据（暂无数据）', left: 'center', top: 10 },
+        xAxis: { type: 'category', data: months },
+        yAxis: { type: 'value' },
+        series: [],
+        graphic: {
+          type: 'text',
+          left: 'center',
+          top: 'middle',
+          style: { text: '暂无数据', fontSize: 18, fill: '#888' },
+        },
+      })
+      monthlyMetricsChart.resize()
+      return
+    }
+
+    monthlyMetricsChart.clear()
+    monthlyMetricsChart.setOption({
+      title: { text: '历史月度数据（销售额 / 广告 / 利润）', left: 'center', top: 10 },
+      tooltip: { trigger: 'axis' },
+      legend: { top: 40 },
+      grid: { top: 80, left: '8%', right: '4%', bottom: 40, containLabel: true },
+      xAxis: { type: 'category', data: months },
+      yAxis: {
+        type: 'value',
+        axisLabel: {
+          formatter: (val) => Math.round(Number(val || 0)),
+        },
+      },
+      series: [
+        {
+          name: '销售额',
+          type: 'line',
+          smooth: true,
+          data: saleArr,
+        },
+        {
+          name: '广告费用折算',
+          type: 'line',
+          smooth: true,
+          data: adArr,
+        },
+        {
+          name: '利润',
+          type: 'line',
+          smooth: true,
+          data: profitArr,
+        },
+      ],
+    })
+    monthlyMetricsChart.resize()
+  })
+}
+
+async function loadMonthlyMetrics() {
+  try {
+    const res = await axios.get('/api/stats/monthly-metrics')
+    const data = res.data || {}
+    const saleArr = Array.isArray(data.sale_total) ? data.sale_total : []
+    const adArr = Array.isArray(data.ad_deduction) ? data.ad_deduction : []
+    const profitArr = Array.isArray(data.profit) ? data.profit : []
+    renderMonthlyMetrics(saleArr, adArr, profitArr)
+  } catch (e) {
+    renderMonthlyMetrics([], [], [])
+  }
+}
+
+async function loadMonthlyDetail() {
+  detailLoading.value = true
+  try {
+    const params = {}
+    if (detailMonth.value) {
+      const parts = String(detailMonth.value).split('-')
+      if (parts.length === 2) {
+        params.year = parts[0]
+        params.month = parts[1]
+      }
+    }
+    const res = await axios.get('/api/stats/monthly-detail', { params })
+    const data = res.data || {}
+    detailRows.value = Array.isArray(data.items) ? data.items : []
+  } catch (e) {
+    detailRows.value = []
+  } finally {
+    detailLoading.value = false
+  }
+}
+
+function onLoadDetail() {
+  loadMonthlyDetail()
+}
+
+function onResetDetail() {
+  detailMonth.value = ''
+  loadMonthlyDetail()
+}
+
 async function load() {
   loading.value = true
   try {
@@ -208,6 +373,12 @@ async function load() {
 
     // 使用后端返回的月份起止日期加载本月每天利润折线图
     await loadProfitTrend(m.start, m.end)
+
+    // 加载历史月度汇总数据
+    await loadMonthlyMetrics()
+
+    // 默认加载全部日期的详细数据
+    await loadMonthlyDetail()
   } catch (e) {
     ElMessage.error(e?.response?.data?.error || e?.message || '加载首页数据失败')
   } finally {

@@ -12,7 +12,7 @@
     </el-header>
     <el-container style="height:100%;">
       <el-aside class="layout-aside" width="200px" style="background:#fff;border-right:1px solid #ebeef5;">
-        <el-menu :default-active="activeMenu" @select="onSelect" router="false">
+        <el-menu :default-active="activeMenu" @select="onSelect" router="false" style="height:100%;display:flex;flex-direction:column;">
           <el-menu-item index="home">首页</el-menu-item>
           <el-menu-item index="stats">订单统计</el-menu-item>
           <el-menu-item v-if="canSeeSettlement" index="settlement">结账工具</el-menu-item>
@@ -25,6 +25,8 @@
           <el-menu-item index="exchange-tool">汇率小工具</el-menu-item>
           <el-menu-item index="charts">图表统计</el-menu-item>
           <el-menu-item v-if="isSuperAdmin" index="users">用户管理</el-menu-item>
+          <div style="flex:1;" />
+          <el-menu-item index="nav-helper">导航助手</el-menu-item>
         </el-menu>
       </el-aside>
       <el-main class="layout-main">
@@ -86,6 +88,11 @@
         <template v-else-if="activeMenu === 'exchange-tool'">
           <CurrencyConverter />
         </template>
+
+        <!-- 导航助手 -->
+        <template v-else-if="activeMenu === 'nav-helper'">
+          <NavigationHelper />
+        </template>
       </el-main>
     </el-container>
   </el-container>
@@ -103,6 +110,7 @@ import StatsDashboard from './components/StatsDashboard.vue'
 import ProfitTool from './components/ProfitTool.vue'
 import ExchangeRatesBar from './components/ExchangeRatesBar.vue'
 import CurrencyConverter from './components/CurrencyConverter.vue'
+import NavigationHelper from './components/NavigationHelper.vue'
 import SettlementList from './components/SettlementList.vue'
 import OrderList from './components/OrderList.vue'
 import ProductManager from './components/ProductManager.vue'
@@ -167,9 +175,9 @@ if (currentUser.value && (
   }
 }
 
-function refreshAll() {
-  todaySales.value && todaySales.value.load()
-  todayGoodsCost.value && todayGoodsCost.value.load()
+function refreshAll(date) {
+  todaySales.value && todaySales.value.load(date)
+  todayGoodsCost.value && todayGoodsCost.value.load(date)
   orderCharts.value && orderCharts.value.load()
 }
 

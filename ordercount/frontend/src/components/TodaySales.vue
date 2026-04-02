@@ -13,11 +13,18 @@ import { ref, onMounted } from 'vue'
 import axios from 'axios'
 
 const total = ref(0)
-function load(){
-  axios.get('/api/sales/today').then(res=>{
-    total.value = res.data.total_amount || 0
+
+function load (date) {
+  const params = {}
+  if (date) params.date = date
+  axios.get('/api/sales/today', { params }).then(res => {
+    total.value = res.data?.total_amount || 0
+  }).catch(() => {
+    // 出错时保持当前值
   })
 }
-onMounted(load)
-defineExpose({load})
+
+onMounted(() => load())
+
+defineExpose({ load })
 </script>

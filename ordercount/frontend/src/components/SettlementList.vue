@@ -33,9 +33,9 @@
       <span v-if="loading" style="font-size:12px;color:#909399;">加载中...</span>
     </div>
     <el-table :data="items" size="small" border style="width:100%;margin-bottom:10px;">
-      <el-table-column prop="created_at" label="时间" width="160">
+      <el-table-column prop="date" label="日期" width="120">
         <template #default="scope">
-          {{ formatTime(scope.row.created_at) }}
+          {{ formatDate(scope.row.date) }}
         </template>
       </el-table-column>
       <el-table-column prop="country" label="国家" width="80" />
@@ -113,6 +113,12 @@ const totalProfit = computed(() => {
 })
 
 const isSuperAdmin = computed(() => props.currentUser && props.currentUser.role === 'superadmin')
+
+function formatDate(d) {
+  if (!d) return ''
+  // 直接使用业务日期字符串（例如 "2026-03-21"），只保留日期部分
+  return String(d).slice(0, 10)
+}
 
 function formatTime(t) {
   if (!t) return ''

@@ -695,11 +695,32 @@ func SaveSettlement(db *gorm.DB) gin.HandlerFunc {
 // 新增订单接口
 func PostOrder(db *gorm.DB) gin.HandlerFunc {
     return func(c *gin.Context) {
-        var o models.Order
-        if err := c.ShouldBindJSON(&o); err != nil {
+        // 接收前端提交的数据，增加一个可选的 date 字段用于指定业务日期
+        var payload struct {
+            Country     string  `json:"country"`
+            Platform    string  `json:"platform"`
+            OrderNo     string  `json:"order_no"`
+            ProductName string  `json:"product_name"`
+            SKU         string  `json:"sku"`
+            Quantity    int     `json:"quantity"`
+            TotalAmount float64 `json:"total_amount"`
+            Currency    string  `json:"currency"`
+            // 业务日期，格式 YYYY-MM-DD，可选
+            Date        string  `json:"date"`
+        }
+        if err := c.ShouldBindJSON(&payload); err != nil {
             c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
             return
         }
+        var o models.Order
+        o.Country = payload.Country
+        o.Platform = payload.Platform
+        o.OrderNo = payload.OrderNo
+        o.ProductName = payload.ProductName
+        o.SKU = payload.SKU
+        o.Quantity = payload.Quantity
+        o.TotalAmount = payload.TotalAmount
+        o.Currency = payload.Currency
         // 将当前登录用户写入订单，用于后续按用户过滤
         userIDVal, _ := c.Get("userID")
         if uid, ok := userIDVal.(uint); ok && uid != 0 {
@@ -708,9 +729,25 @@ func PostOrder(db *gorm.DB) gin.HandlerFunc {
             c.JSON(http.StatusUnauthorized, gin.H{"error": "未获取到用户信息"})
             return
         }
-        if o.CreatedAt.IsZero() {
-            o.CreatedAt = time.Now()
+        // 如果前端传了业务日期，则按该“日期 + 当前时间”归属出单记录，
+        // 这样既保证按所选日期统计，又能用时间部分进行“最新在前”的排序。
+        if payload.Date != "" {
+            if baseDate, err := time.ParseInLocation("2006-01-02", payload.Date, time.Local); err == nil {
+                now := time.Now().In(time.Local)
+                o.CreatedAt = time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day(),
+                    now.Hour(), now.Minute(), now.Second(), now.Nanosecond(), time.Local)
+            } else {
+                log.Printf("[PostOrder] 解析日期失败，payload.Date=%s，使用当前时间: %v", payload.Date, err)
+                o.CreatedAt = time.Now()
+            }
+        } else {
+            if o.CreatedAt.IsZero() {
+                log.Printf("[PostOrder] 未提供 date，使用当前时间作为 CreatedAt")
+                o.CreatedAt = time.Now()
+            }
         }
+
+        log.Printf("[PostOrder] 收到订单：country=%s sku=%s quantity=%d date=%s CreatedAt=%s", o.Country, o.SKU, o.Quantity, payload.Date, o.CreatedAt.Format("2006-01-02 15:04:05"))
 
         // 如果是“今日总额汇总”，则当日只保留一条记录：后提交的覆盖前一次
         if o.ProductName == "今日总额汇总" {
@@ -1155,6 +1192,160 @@ func AdDeductionMonthlyStats(db *gorm.DB) gin.HandlerFunc {
             }
         }
         c.JSON(http.StatusOK, gin.H{"year": year, "monthly": res})
+    }
+}
+
+// MonthlyMetricsStats 按月汇总某年销售额、广告费折算、利润
+func MonthlyMetricsStats(db *gorm.DB) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        year := c.Query("year")
+        if year == "" {
+            // 默认年份基于数据库中最新一条结算记录的年份，若无数据则回退到当前年份
+            if err := db.Raw(`
+                SELECT DATE_FORMAT(IFNULL(MAX(date), CURDATE()), '%Y')
+                FROM daily_settlements
+            `).Scan(&year).Error; err != nil || year == "" {
+                year = time.Now().Format("2006")
+            }
+        }
+
+        rows, err := db.Raw(`
+            SELECT MONTH(date) as month,
+                   IFNULL(SUM(sale_total),0)    as sale_total,
+                   IFNULL(SUM(ad_deduction),0)  as ad_deduction,
+                   IFNULL(SUM(profit),0)        as profit
+            FROM daily_settlements
+            WHERE YEAR(date) = ?
+            GROUP BY month
+            ORDER BY month
+        `, year).Rows()
+        if err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+            return
+        }
+        defer rows.Close()
+
+        saleArr := make([]float64, 12)
+        adArr := make([]float64, 12)
+        profitArr := make([]float64, 12)
+
+        for rows.Next() {
+            var m int
+            var sale, ad, profit float64
+            if err := rows.Scan(&m, &sale, &ad, &profit); err != nil {
+                c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+                return
+            }
+            if m >= 1 && m <= 12 {
+                idx := m - 1
+                saleArr[idx] = sale
+                adArr[idx] = ad
+                profitArr[idx] = profit
+            }
+        }
+
+        c.JSON(http.StatusOK, gin.H{
+            "year":         year,
+            "sale_total":   saleArr,
+            "ad_deduction": adArr,
+            "profit":       profitArr,
+        })
+    }
+}
+
+// MonthlyDetailStats 按年+月返回每天的详细结算数据；未指定则返回全部日期
+func MonthlyDetailStats(db *gorm.DB) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        yearStr := strings.TrimSpace(c.Query("year"))
+        monthStr := strings.TrimSpace(c.Query("month"))
+
+        var startDate, endDate string
+
+        if yearStr != "" && monthStr != "" {
+            y, err1 := strconv.Atoi(yearStr)
+            m, err2 := strconv.Atoi(monthStr)
+            if err1 == nil && err2 == nil && m >= 1 && m <= 12 {
+                loc := time.Local
+                start := time.Date(y, time.Month(m), 1, 0, 0, 0, 0, loc)
+                end := start.AddDate(0, 1, 0).AddDate(0, 0, -1)
+                startDate = start.Format("2006-01-02")
+                endDate = end.Format("2006-01-02")
+            }
+        }
+
+        // 聚合整月（或全部日期）的总数据，只返回一行
+        type summary struct {
+            SaleTotal   float64 `json:"sale_total"`
+            GoodsCost   float64 `json:"goods_cost"`
+            AdDeduction float64 `json:"ad_deduction"`
+            PlatformFee float64 `json:"platform_fee"`
+            Profit      float64 `json:"profit"`
+        }
+        var sum summary
+
+        if startDate != "" && endDate != "" {
+            if err := db.Raw(`
+                SELECT IFNULL(SUM(sale_total),0)   AS sale_total,
+                       IFNULL(SUM(goods_cost),0)   AS goods_cost,
+                       IFNULL(SUM(ad_deduction),0) AS ad_deduction,
+                       IFNULL(SUM(platform_fee),0) AS platform_fee,
+                       IFNULL(SUM(profit),0)       AS profit
+                FROM daily_settlements
+                WHERE date >= ? AND date <= ?
+            `, startDate, endDate).Scan(&sum).Error; err != nil {
+                c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+                return
+            }
+        } else {
+            if err := db.Raw(`
+                SELECT IFNULL(SUM(sale_total),0)   AS sale_total,
+                       IFNULL(SUM(goods_cost),0)   AS goods_cost,
+                       IFNULL(SUM(ad_deduction),0) AS ad_deduction,
+                       IFNULL(SUM(platform_fee),0) AS platform_fee,
+                       IFNULL(SUM(profit),0)       AS profit
+                FROM daily_settlements
+            `).Scan(&sum).Error; err != nil {
+                c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+                return
+            }
+        }
+
+        // 前端表格需要有一列“日期”用于展示，这里对于整月用 "YYYY-MM"，全部则用 "全部"
+        label := "全部"
+        if startDate != "" && endDate != "" {
+            if yearStr != "" && monthStr != "" {
+                label = fmt.Sprintf("%s-%s", yearStr, monthStr)
+            } else {
+                label = fmt.Sprintf("%s ~ %s", startDate, endDate)
+            }
+        }
+
+        type item struct {
+            Date        string  `json:"date"`
+            SaleTotal   float64 `json:"sale_total"`
+            GoodsCost   float64 `json:"goods_cost"`
+            AdDeduction float64 `json:"ad_deduction"`
+            PlatformFee float64 `json:"platform_fee"`
+            Profit      float64 `json:"profit"`
+        }
+        items := []item{
+            {
+                Date:        label,
+                SaleTotal:   sum.SaleTotal,
+                GoodsCost:   sum.GoodsCost,
+                AdDeduction: sum.AdDeduction,
+                PlatformFee: sum.PlatformFee,
+                Profit:      sum.Profit,
+            },
+        }
+
+        c.JSON(http.StatusOK, gin.H{
+            "year":       yearStr,
+            "month":      monthStr,
+            "start_date": startDate,
+            "end_date":   endDate,
+            "items":      items,
+        })
     }
 }
 

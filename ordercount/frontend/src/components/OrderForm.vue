@@ -78,7 +78,11 @@
       style="margin-top:10px;"
       border
     >
-      <el-table-column prop="created_at" label="时间" width="180" />
+      <el-table-column prop="created_at" label="时间" width="140">
+        <template #default="scope">
+          <span>{{ formatDateOnly(scope.row.created_at) }}</span>
+        </template>
+      </el-table-column>
       <el-table-column prop="country" label="国家" width="80" />
       <el-table-column prop="sku" label="商品SKU">
         <template #default="scope">
@@ -176,6 +180,13 @@ const submittedOrders = ref([])
 const editingId = ref(null)
 const editForm = ref({ sku: '', quantity: 0 })
 
+function formatDateOnly(t) {
+  if (!t) return ''
+  const s = String(t)
+  const idx = s.indexOf(' ')
+  return idx >= 0 ? s.slice(0, idx) : s
+}
+
 function initSelectedDate() {
   if (!selectedDate.value) {
     const d = new Date()
@@ -237,8 +248,10 @@ onMounted(() => {
   })()
 })
 
-watch(selectedDate, () => {
+watch(selectedDate, (val) => {
   loadTodayOrders()
+  // 同步刷新右侧“今日销售额汇总”和“今日货款成本”等模块，保持与选中的业务日期一致
+  emit('refresh', val)
 })
 // 提交单条 SKU 出单明细：不需要填写总额，总额统一在最后单独保存
 async function onSubmitDetail() {
@@ -262,13 +275,15 @@ async function onSubmitDetail() {
     quantity: form.value.quantity,
     // 每条 SKU 明细不再录入总额，这里固定为 0
     total_amount: 0,
+    // 传递选中的业务日期，后端按该日期归属到对应的出单日
+    date: selectedDate.value,
   }
   const res = await axios.post('/api/order', payload).catch(e=>({data:{error:e.message}}))
   if(res.data && !res.data.error){
     msg.value = '出单明细添加成功！'
     // 重新加载当天订单列表，确保与订单记录一致
     await loadTodayOrders()
-    emit('refresh')
+    emit('refresh', selectedDate.value)
     // 只重置 SKU 与数量，国家与总额保留，方便连续录入
     form.value.sku = ''
     form.value.product_name = ''
@@ -295,12 +310,14 @@ async function onSubmitTotal() {
     sku: '',
     quantity: 0,
     total_amount: form.value.total_amount,
+    // 总额记录同样按当前选择的日期归属
+    date: selectedDate.value,
   }
   const res = await axios.post('/api/order', payload).catch(e=>({data:{error:e.message}}))
   if(res.data && !res.data.error){
     msg.value = '今日总额保存成功！'
     await loadTodayOrders()
-    emit('refresh')
+    emit('refresh', selectedDate.value)
   }else{
     msg.value = res.data.error || '保存今日总额失败'
   }
@@ -322,7 +339,7 @@ async function onDelete(row) {
   if (res.data && !res.data.error) {
     await loadTodayOrders()
     msg.value = '删除成功'
-    emit('refresh')
+    emit('refresh', selectedDate.value)
   } else {
     msg.value = res.data.error || '删除失败'
   }
@@ -361,7 +378,7 @@ async function onSaveEdit(row) {
     msg.value = '修改成功'
     editingId.value = null
     editForm.value = { sku: '', quantity: 0 }
-    emit('refresh')
+    emit('refresh', selectedDate.value)
   } else {
     msg.value = res.data.error || '修改失败'
   }

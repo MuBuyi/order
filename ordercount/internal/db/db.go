@@ -18,7 +18,7 @@ func InitDB(dsn string) (*gorm.DB, error) {
     }
 
     // 自动迁移: 包括 User 表，便于首次部署时自动创建缺失表结构
-    if err := db.AutoMigrate(&models.User{}, &models.Order{}, &models.DailySettlement{}, &models.Product{}, &models.Store{}, &models.StoreUser{}, &models.StoreDailyStat{}); err != nil {
+    if err := db.AutoMigrate(&models.User{}, &models.Order{}, &models.DailySettlement{}, &models.Product{}, &models.Store{}, &models.StoreUser{}, &models.StoreDailyStat{}, &models.NavLink{}); err != nil {
         // MySQL 有时会因为索引/约束名不一致尝试执行 DROP，返回 1091 错误（Can't DROP ...）
         // 为了兼容已有数据库，遇到此类错误时记录警告并继续，而非直接失败。
         if strings.Contains(err.Error(), "Can't DROP") || strings.Contains(err.Error(), "Error 1091") {

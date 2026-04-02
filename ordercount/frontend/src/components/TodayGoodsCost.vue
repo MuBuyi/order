@@ -15,15 +15,17 @@ import axios from 'axios'
 
 const total = ref(0)
 
-function load () {
-  axios.get('/api/costs/today').then(res => {
-    total.value = res.data.total_cost || 0
+function load (date) {
+  const params = {}
+  if (date) params.date = date
+  axios.get('/api/costs/today', { params }).then(res => {
+    total.value = res.data?.total_cost || 0
   }).catch(() => {
     total.value = 0
   })
 }
 
-onMounted(load)
+onMounted(() => load())
 
 // 供父组件调用刷新
 defineExpose({ load })

@@ -144,6 +144,8 @@ func main() {
 		api.GET("/stats/ad-deduction/daily", handlers.AdDeductionDailyStats(gdb))
 		api.GET("/stats/ad-deduction/monthly", handlers.AdDeductionMonthlyStats(gdb))
 		api.GET("/stats/dashboard/summary", handlers.DashboardSummary(gdb))
+		api.GET("/stats/monthly-metrics", handlers.MonthlyMetricsStats(gdb))
+		api.GET("/stats/monthly-detail", handlers.MonthlyDetailStats(gdb))
 
 		// 商品管理（需登录）
 		products := api.Group("/products")
@@ -171,6 +173,13 @@ func main() {
 		storeStats.GET("", handlers.ListStoreStats(gdb))
 		storeStats.POST("", handlers.SaveStoreStat(gdb))
 		storeStats.GET("/range", handlers.ListStoreStatsRange(gdb))
+
+		// 导航助手（需登录，按用户隔离）
+		nav := api.Group("/nav_links")
+		nav.Use(handlers.AuthMiddleware())
+		nav.GET("", handlers.ListNavLinks(gdb))
+		nav.POST("", handlers.SaveNavLink(gdb))
+		nav.DELETE(":id", handlers.DeleteNavLink(gdb))
 
 		// 新增统计接口
 		api.GET("/stats/hourly", handlers.HourlyStats(gdb))
@@ -299,6 +308,29 @@ func main() {
 		if err != nil {
 			log.Printf("[weekly-scheduler] 加载 Asia/Shanghai 时区失败，将使用本地时区：%v", err)
 			bjLoc = time.Local
+		}
+
+		// 启动时的补偿逻辑：
+		// 如果当前就是周一，并且已经过了北京时间 08:00，说明本实例是在当天定时点之后才启动，
+		// 这时先补发一次本周应有的周报，然后再按正常节奏排下一次（下周一 08:00）。
+		nowBJ := time.Now().In(bjLoc)
+		if nowBJ.Weekday() == time.Monday {
+			firstRunToday := time.Date(nowBJ.Year(), nowBJ.Month(), nowBJ.Day(), 8, 0, 0, 0, bjLoc)
+			if nowBJ.After(firstRunToday) {
+				// 触发一次“补发”周报，日期范围依然按当前本地时区（雅加达）计算上周 7 天
+				end := time.Now().Add(-24 * time.Hour)
+				start := end.AddDate(0, 0, -6)
+				startDate := start.Format("2006-01-02")
+				endDate := end.Format("2006-01-02")
+
+				log.Printf("[weekly-scheduler] 检测到周一已过 08:00，立即补发结算周报，日期范围：%s ~ %s", startDate, endDate)
+
+				if err := handlers.NotifyWecomSettlementForRange(gdb, startDate, endDate, "weekly"); err != nil {
+					log.Printf("[weekly-scheduler] 补发结算周报失败：%v", err)
+				} else {
+					log.Printf("[weekly-scheduler] 补发结算周报成功，日期范围：%s ~ %s", startDate, endDate)
+				}
+			}
 		}
 
 		for {

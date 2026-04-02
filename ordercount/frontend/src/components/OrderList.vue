@@ -24,7 +24,7 @@
       <span v-if="loading" style="font-size:12px;color:#909399;">加载中...</span>
     </div>
     <el-table :data="items" size="small" border style="width:100%;margin-bottom:10px;">
-      <el-table-column prop="created_at" label="时间" width="260">
+      <el-table-column prop="created_at" label="时间" width="180">
         <template #default="scope">
           <template v-if="editingId === scope.row.id">
             <div style="display:flex;align-items:center;gap:6px;">
@@ -44,7 +44,7 @@
           </template>
           <template v-else>
             <div style="display:flex;align-items:center;gap:6px;">
-              <span>{{ formatTime(scope.row.created_at) }}</span>
+              <span>{{ formatDateOnly(scope.row.created_at) }}</span>
             </div>
           </template>
         </template>
@@ -90,12 +90,12 @@ const total = ref(0)
 const editingId = ref(null)
 const editDate = ref('')
 
-function formatTime(t) {
+function formatDateOnly(t) {
   if (!t) return ''
-  const d = new Date(t)
-  if (Number.isNaN(d.getTime())) return t
-  const pad = (n) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+  // 后端返回 "YYYY-MM-DD" 或 "YYYY-MM-DD HH:MM:SS"，这里统一只取日期部分
+  const s = String(t)
+  const idx = s.indexOf(' ')
+  return idx >= 0 ? s.slice(0, idx) : s
 }
 
 async function load() {
