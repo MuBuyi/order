@@ -1,0 +1,21 @@
+# Local config and secrets
+.env
+*.env
+config.yaml
+
+# Logs and runtime files
+*.log
+logs/
+
+# Database dumps and backups
+*.sql
+*backup*
+
+# Build outputs and dependencies
+node_modules/
+dist/
+build/
+*.test
+
+# Runtime uploads
+uploads/

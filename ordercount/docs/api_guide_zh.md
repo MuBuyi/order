@@ -306,8 +306,11 @@
 - 方法：`GET`
 - 路径：`/api/shops`
 - 是否需要登录：是
-- Query：
-  - 可选分页 / 筛选参数（视后端实现）
+- Query 参数：
+  - `country` (string) 可选：按国家筛选；支持中文值（如 `菲律宾`），`全部` 或不传表示不过滤
+  - `status` (string) 可选：店铺状态筛选；可选值：`all` / `enabled` / `disabled`
+  - `is_blocked` (bool) 可选：按封禁状态筛选；`true` 表示停用，`false` 表示启用
+  - 说明：当 `status` 与 `is_blocked` 同时传入时，两者条件会同时生效
 - 返回：店铺数组
 
 ### 6.2 新增 / 更新店铺
@@ -453,7 +456,10 @@
 - 方法：`GET`
 - 路径：`/api/dashboard/home`
 - 是否需要登录：是
-- Query：无
+- Query：
+  - `year`：可选，年份，如 `2026`
+  - `month`：可选，月份，如 `06`
+  - 未传时默认返回当前月数据
 - 返回：用于首页 HomeDashboard 的统计数据
 
 ### 8.4 手动推送订单日报

@@ -1,28 +1,30 @@
-# 多合一镜像：构建前端并编译 Go 后端，统一由 Go 程序提供接口和静态页面
-FROM golang:1.22-alpine
+# 后端镜像（仅 Go API 服务）
+FROM golang:1.22-alpine AS builder
 
-# 安装 Node.js 和 npm 用于前端构建
-RUN apk add --no-cache nodejs npm git
+WORKDIR /src
 
-WORKDIR /app
-
-# 预先拷贝 go.mod/go.sum，提升依赖缓存利用率
+# 预先拷贝依赖定义，提升构建缓存命中
 COPY go.mod go.sum ./
 RUN go mod download
 
-# 拷贝剩余代码
 COPY . .
 
-# 构建前端
-WORKDIR /app/frontend
-RUN npm install && npm run build
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/ordercount .
 
-# 回到后端根目录并构建二进制
+FROM alpine:3.20
+
+RUN apk add --no-cache ca-certificates tzdata
+
 WORKDIR /app
-RUN go build -o ordercount .
+
+COPY --from=builder /out/ordercount /app/ordercount
+COPY config.yaml /app/config.yaml
+
+# 上传目录可通过 compose volume 挂载覆盖
+RUN mkdir -p /app/uploads/products
 
 EXPOSE 8080
 
 ENV GIN_MODE=release
 
-CMD ["./ordercount"]
+CMD ["/app/ordercount"]

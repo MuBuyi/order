@@ -36,14 +36,17 @@ docker compose up -d
 
 这会启动：
 - 一个 MySQL 容器（服务名 `db`，数据库名 `ordercount`，用户 `appuser/app123456`）。
-- 一个应用容器（服务名 `ordercount-app`），内部同时运行 Go 后端和已打包的前端，监听 `8080` 端口，对外映射为 `http://<服务器IP>:8080/`。
+- 一个 Go 后端容器（服务名 `backend`），对外映射 `8081` 端口（`http://<服务器IP>:8081`）。
+- 一个前端 Nginx 容器（服务名 `frontend`），对外映射 `8080` 端口（`http://<服务器IP>:8080/`）。
 
-应用容器通过环境变量 `MYSQL_DSN` 连接到 `db` 容器，形如：
+后端容器通过环境变量 `MYSQL_DSN` 连接到 `db` 容器，形如：
 ```
 appuser:app123456@tcp(db:3306)/ordercount?charset=utf8mb4&parseTime=True&loc=Local
 ```
 
-如果在服务器上需要配置企业微信 / 豆包等，可在 `docker-compose.yml` 的 `app.environment` 中补充：
+前端容器通过内置 Nginx 将 `/api` 与 `/uploads` 反向代理到 `backend:8080`，因此浏览器统一访问 `http://<服务器IP>:8080` 即可。
+
+如果在服务器上需要配置企业微信 / 豆包等，可在 `docker-compose.yml` 的 `backend.environment` 中补充：
 - `WECHAT_ROBOT_WEBHOOK`
 - `DOUBAO_API_KEY`
 - `DOUBAO_ENDPOINT`

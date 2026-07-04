@@ -14,19 +14,17 @@
       <el-aside class="layout-aside" width="200px" style="background:#fff;border-right:1px solid #ebeef5;">
         <el-menu :default-active="activeMenu" @select="onSelect" router="false" style="height:100%;display:flex;flex-direction:column;">
           <el-menu-item index="home">首页</el-menu-item>
-          <el-menu-item index="stats">订单统计</el-menu-item>
-          <el-menu-item v-if="canSeeSettlement" index="settlement">结账工具</el-menu-item>
-          <el-menu-item v-if="canSeeProduct" index="product">商品管理</el-menu-item>
-          <el-sub-menu v-if="canSeeShop" index="shop">
-            <template #title>店铺管理</template>
-            <el-menu-item index="shop-manage">店铺管理</el-menu-item>
-            <el-menu-item index="shop-info">现有店铺信息</el-menu-item>
-          </el-sub-menu>
-          <el-menu-item index="exchange-tool">汇率小工具</el-menu-item>
-          <el-menu-item index="charts">图表统计</el-menu-item>
-          <el-menu-item v-if="isSuperAdmin" index="users">用户管理</el-menu-item>
+          <el-menu-item v-if="canAccessMenu('stats')" index="stats">订单统计</el-menu-item>
+          <el-menu-item v-if="canAccessMenu('shop-info')" index="shop-info">店铺广告</el-menu-item>
+          <el-menu-item v-if="canAccessMenu('settlement')" index="settlement">结账工具</el-menu-item>
+          <el-menu-item v-if="canAccessMenu('returns')" index="returns">退货管理</el-menu-item>
+          <el-menu-item v-if="canAccessMenu('product')" index="product">商品管理</el-menu-item>
+          <el-menu-item v-if="canAccessMenu('shop-manage')" index="shop-manage">店铺管理</el-menu-item>
+          <el-menu-item v-if="canAccessMenu('exchange-tool')" index="exchange-tool">汇率小工具</el-menu-item>
+          <el-menu-item v-if="canAccessMenu('charts')" index="charts">图表统计</el-menu-item>
+          <el-menu-item v-if="canAccessMenu('users')" index="users">用户管理</el-menu-item>
           <div style="flex:1;" />
-          <el-menu-item index="nav-helper">导航助手</el-menu-item>
+          <el-menu-item v-if="canAccessMenu('nav-helper')" index="nav-helper">导航助手</el-menu-item>
         </el-menu>
       </el-aside>
       <el-main class="layout-main">
@@ -38,7 +36,7 @@
         </template>
 
         <!-- 订单统计视图 -->
-        <template v-else-if="activeMenu === 'stats'">
+        <template v-else-if="activeMenu === 'stats' && canAccessMenu('stats')">
           <el-row :gutter="20">
             <el-col :span="12">
               <OrderForm @refresh="refreshAll" @go-shop-info="goShopInfo" />
@@ -54,44 +52,49 @@
         </template>
 
         <!-- 图表统计视图 -->
-        <template v-else-if="activeMenu === 'charts'">
+        <template v-else-if="activeMenu === 'charts' && canAccessMenu('charts')">
           <StatsDashboard />
         </template>
 
         <!-- 结账工具视图（根据权限控制） -->
-        <template v-else-if="activeMenu === 'settlement' && canSeeSettlement">
+        <template v-else-if="activeMenu === 'settlement' && canAccessMenu('settlement')">
           <ProfitTool />
           <SettlementList :current-user="currentUser" />
         </template>
 
+        <!-- 退货管理（与结账工具同级） -->
+        <template v-else-if="activeMenu === 'returns' && canAccessMenu('returns')">
+          <ReturnManagement :current-user="currentUser" />
+        </template>
+
         <!-- 商品管理视图（根据权限控制；编辑权限由内部控制） -->
-        <template v-else-if="activeMenu === 'product' && canSeeProduct">
+        <template v-else-if="activeMenu === 'product' && canAccessMenu('product')">
           <ProductManager :current-user="currentUser" />
         </template>
 
         <!-- 店铺管理视图（根据权限控制） -->
-        <template v-else-if="activeMenu === 'shop-manage' && canSeeShop">
+        <template v-else-if="activeMenu === 'shop-manage' && canAccessMenu('shop-manage')">
           <ShopManager :current-user="currentUser" />
         </template>
 
         <!-- 现有店铺信息视图：展示店铺每日广告费用等信息 -->
-        <template v-else-if="activeMenu === 'shop-info' && canSeeShop">
+        <template v-else-if="activeMenu === 'shop-info' && canAccessMenu('shop-info')">
           <StoreInfo :current-user="currentUser" />
         </template>
 
-        <!-- 用户管理视图（仅超级管理员可见） -->
-        <template v-else-if="activeMenu === 'users' && isSuperAdmin">
+        <!-- 用户管理视图（根据权限控制） -->
+        <template v-else-if="activeMenu === 'users' && canAccessMenu('users')">
           <UserManager :current-user="currentUser" />
         </template>
         
         <!-- 汇率小工具页面 -->
-        <template v-else-if="activeMenu === 'exchange-tool'">
+        <template v-else-if="activeMenu === 'exchange-tool' && canAccessMenu('exchange-tool')">
           <CurrencyConverter />
         </template>
 
         <!-- 导航助手 -->
-        <template v-else-if="activeMenu === 'nav-helper'">
-          <NavigationHelper />
+        <template v-else-if="activeMenu === 'nav-helper' && canAccessMenu('nav-helper')">
+          <NavigationHelper :current-user="currentUser" />
         </template>
       </el-main>
     </el-container>
@@ -101,6 +104,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import axios from 'axios'
+import { MENU_ORDER, MENU_PERMISSION_MAP } from './utils/pagePermissions'
 import OrderForm from './components/OrderForm.vue'
 import HomeDashboard from './components/HomeDashboard.vue'
 import TodaySales from './components/TodaySales.vue'
@@ -118,6 +122,7 @@ import ShopManager from './components/ShopManager.vue'
 import StoreInfo from './components/StoreInfo.vue'
 import Login from './components/Login.vue'
 import UserManager from './components/UserManager.vue'
+import ReturnManagement from './components/ReturnManagement.vue'
 
 const todaySales = ref(null)
 const todayGoodsCost = ref(null)
@@ -131,7 +136,6 @@ const currentUser = ref(savedUser ? JSON.parse(savedUser) : null)
 
 // 角色辅助判断
 const isSuperAdmin = computed(() => currentUser.value && currentUser.value.role === 'superadmin')
-const isAdminLike = computed(() => currentUser.value && (currentUser.value.role === 'admin' || currentUser.value.role === 'superadmin'))
 
 // 页面权限辅助函数（permissions 可以是逗号分隔字符串或数组）
 function hasPerm(key) {
@@ -148,9 +152,22 @@ function hasPerm(key) {
     .includes(key)
 }
 
-const canSeeSettlement = computed(() => isSuperAdmin.value || hasPerm('settlement'))
-const canSeeProduct = computed(() => isSuperAdmin.value || hasPerm('product'))
-const canSeeShop = computed(() => isSuperAdmin.value || hasPerm('shop'))
+function canAccessMenu(menuKey) {
+  if (!currentUser.value) return false
+  if (isSuperAdmin.value) return true
+  const permKey = MENU_PERMISSION_MAP[menuKey]
+  if (!permKey) return true
+  return hasPerm(permKey)
+}
+
+function firstAccessibleMenu() {
+  for (const key of MENU_ORDER) {
+    if (canAccessMenu(key)) {
+      return key
+    }
+  }
+  return 'home'
+}
 
 // 记住上次选中的菜单，刷新后保持在同一页面
 const ACTIVE_MENU_STORAGE_KEY = 'ordercount-active-menu'
@@ -162,16 +179,11 @@ const savedMenu = typeof window !== 'undefined'
 const initialMenu = savedMenu === 'shop' ? 'shop-manage' : (savedMenu || 'home')
 const activeMenu = ref(initialMenu)
 
-// 如果当前用户无权限，但上次记住的是结账工具/商品管理/用户管理，则强制回到订单统计
-if (currentUser.value && (
-  (!canSeeSettlement.value && activeMenu.value === 'settlement') ||
-  (!canSeeProduct.value && activeMenu.value === 'product') ||
-  (!canSeeShop.value && (activeMenu.value === 'shop-manage' || activeMenu.value === 'shop-info')) ||
-  (!isSuperAdmin.value && activeMenu.value === 'users')
-)) {
-  activeMenu.value = 'stats'
+// 如果当前用户对上次记住的页面无权限，则跳转到第一个有权限的页面
+if (currentUser.value && !canAccessMenu(activeMenu.value)) {
+  activeMenu.value = firstAccessibleMenu()
   if (typeof window !== 'undefined') {
-    window.localStorage.setItem(ACTIVE_MENU_STORAGE_KEY, 'stats')
+    window.localStorage.setItem(ACTIVE_MENU_STORAGE_KEY, activeMenu.value)
   }
 }
 
@@ -187,19 +199,11 @@ function goShopInfo() {
 }
 
 function onSelect(key) {
-  // 无结账工具权限的用户禁止切换到结账工具
-  if (!canSeeSettlement.value && key === 'settlement') {
-    activeMenu.value = 'stats'
-    return
-  }
-  // 无店铺管理权限的用户禁止切换到店铺管理
-  if (!canSeeShop.value && (key === 'shop-manage' || key === 'shop-info')) {
-    activeMenu.value = 'stats'
-    return
-  }
-  // 非超级管理员禁止进入用户管理
-  if (!isSuperAdmin.value && key === 'users') {
-    activeMenu.value = 'stats'
+  if (!canAccessMenu(key)) {
+    activeMenu.value = firstAccessibleMenu()
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(ACTIVE_MENU_STORAGE_KEY, activeMenu.value)
+    }
     return
   }
   activeMenu.value = key
@@ -210,19 +214,10 @@ function onSelect(key) {
 
 function onLoggedIn(user) {
 	currentUser.value = user
-  // 登录后优先进入首页
-  activeMenu.value = 'home'
+  // 登录后进入第一个有权限的页面
+  activeMenu.value = firstAccessibleMenu()
   if (typeof window !== 'undefined') {
-    window.localStorage.setItem(ACTIVE_MENU_STORAGE_KEY, 'home')
-  }
-  // 再根据角色校验当前菜单是否允许访问（如果后续手动切换）
-  if ((!canSeeSettlement.value && activeMenu.value === 'settlement') ||
-  (!canSeeShop.value && (activeMenu.value === 'shop-manage' || activeMenu.value === 'shop-info')) ||
-      (!isSuperAdmin.value && activeMenu.value === 'users')) {
-    activeMenu.value = 'home'
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem(ACTIVE_MENU_STORAGE_KEY, 'home')
-    }
+    window.localStorage.setItem(ACTIVE_MENU_STORAGE_KEY, activeMenu.value)
   }
 }
 

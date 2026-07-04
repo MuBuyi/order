@@ -30,8 +30,13 @@
         <el-col :span="6">
           <el-form-item label="页面权限">
             <el-checkbox-group v-model="form.permissions">
-              <el-checkbox label="settlement">结账工具</el-checkbox>
-              <el-checkbox label="product">商品管理</el-checkbox>
+              <el-checkbox
+                v-for="item in PAGE_PERMISSION_OPTIONS"
+                :key="item.key"
+                :label="item.key"
+              >
+                {{ item.label }}
+              </el-checkbox>
             </el-checkbox-group>
           </el-form-item>
         </el-col>
@@ -46,6 +51,13 @@
 
     <el-table :data="users" size="small" border style="width:100%;">
       <el-table-column prop="username" label="用户名" width="180" />
+      <el-table-column label="状态" width="100">
+        <template #default="scope">
+          <el-tag :type="scope.row.is_active ? 'success' : 'info'" size="small">
+            {{ scope.row.is_active ? '启用中' : '已停用' }}
+          </el-tag>
+        </template>
+      </el-table-column>
       <el-table-column prop="role" label="角色" width="200">
         <template #default="scope">
           <el-select v-model="scope.row.role" size="small" style="width:140px;" @change="(v) => onRoleChange(scope.row, v)">
@@ -62,16 +74,39 @@
             :disabled="currentUser && scope.row.id === currentUser.id"
             @change="(vals) => onPermChange(scope.row, vals)"
           >
-            <el-checkbox label="settlement">结账工具</el-checkbox>
-            <el-checkbox label="product">商品管理</el-checkbox>
+            <el-checkbox
+              v-for="item in PAGE_PERMISSION_OPTIONS"
+              :key="item.key"
+              :label="item.key"
+            >
+              {{ item.label }}
+            </el-checkbox>
           </el-checkbox-group>
         </template>
       </el-table-column>
       <el-table-column prop="created_at" label="创建时间" width="180" />
-      <el-table-column label="操作" width="140">
+      <el-table-column label="操作" width="280">
         <template #default="scope">
           <el-button type="primary" link size="small" @click="onResetPwd(scope.row)">
             修改密码
+          </el-button>
+          <el-button
+            v-if="isSuperAdmin && (!currentUser || scope.row.id !== currentUser.id)"
+            :type="scope.row.is_active ? 'warning' : 'success'"
+            link
+            size="small"
+            @click="onToggleStatus(scope.row)"
+          >
+            {{ scope.row.is_active ? '停用' : '启用' }}
+          </el-button>
+          <el-button
+            v-if="isSuperAdmin && (!currentUser || scope.row.id !== currentUser.id)"
+            type="danger"
+            link
+            size="small"
+            @click="onDeleteUser(scope.row)"
+          >
+            删除用户
           </el-button>
         </template>
       </el-table-column>
@@ -92,8 +127,9 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import axios from 'axios'
+import { PAGE_PERMISSION_OPTIONS } from '../utils/pagePermissions'
 
 const props = defineProps({
   currentUser: {
@@ -108,6 +144,7 @@ const msg = ref('')
 const ok = ref(true)
 const pwdDialogVisible = ref(false)
 const pwdForm = ref({ id: null, username: '', password: '' })
+const isSuperAdmin = computed(() => props.currentUser && props.currentUser.role === 'superadmin')
 
 async function loadUsers() {
   const res = await axios.get('/api/users')
@@ -194,6 +231,69 @@ async function onConfirmPwd() {
       msg.value = e.response.data.error
     } else {
       msg.value = '更新密码失败，请稍后重试'
+    }
+  }
+}
+
+async function onDeleteUser(row) {
+  if (!row || !row.id) return
+  if (!isSuperAdmin.value) {
+    msg.value = '仅超级管理员可以删除用户'
+    ok.value = false
+    return
+  }
+  if (props.currentUser && row.id === props.currentUser.id) {
+    msg.value = '不能删除当前登录用户'
+    ok.value = false
+    return
+  }
+  const confirmed = window.confirm(`确认删除用户 ${row.username} 吗？该操作不可恢复。`)
+  if (!confirmed) return
+
+  try {
+    await axios.delete(`/api/users/${row.id}`)
+    msg.value = '删除成功'
+    ok.value = true
+    loadUsers()
+  } catch (e) {
+    ok.value = false
+    if (e && e.response && e.response.data && e.response.data.error) {
+      msg.value = e.response.data.error
+    } else {
+      msg.value = '删除失败，请稍后重试'
+    }
+  }
+}
+
+async function onToggleStatus(row) {
+  if (!row || !row.id) return
+  if (!isSuperAdmin.value) {
+    msg.value = '仅超级管理员可以修改用户状态'
+    ok.value = false
+    return
+  }
+  if (props.currentUser && row.id === props.currentUser.id) {
+    msg.value = '不能修改当前登录用户状态'
+    ok.value = false
+    return
+  }
+
+  const nextActive = !row.is_active
+  const actionText = nextActive ? '启用' : '停用'
+  const confirmed = window.confirm(`确认${actionText}用户 ${row.username} 吗？`)
+  if (!confirmed) return
+
+  try {
+    await axios.put(`/api/users/${row.id}/status`, { is_active: nextActive })
+    msg.value = `${actionText}成功`
+    ok.value = true
+    loadUsers()
+  } catch (e) {
+    ok.value = false
+    if (e && e.response && e.response.data && e.response.data.error) {
+      msg.value = e.response.data.error
+    } else {
+      msg.value = `${actionText}失败，请稍后重试`
     }
   }
 }

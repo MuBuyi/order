@@ -64,7 +64,7 @@
       </el-form-item>
     </el-form>
 
-    <div style="margin:10px 0; display:flex; align-items:center; justify-content:flex-end; gap:12px;">
+    <div style="margin:10px 0; display:flex; align-items:center; justify-content:flex-end; gap:12px; flex-wrap:wrap;">
       <div>按国家筛选：</div>
       <el-select v-model="selectedCountry" placeholder="全部国家" style="width:220px;">
         <el-option
@@ -74,44 +74,109 @@
           :value="c"
         />
       </el-select>
+      <div>按状态筛选：</div>
+      <el-select v-model="selectedStatus" placeholder="全部状态" style="width:160px;">
+        <el-option label="全部" value="all" />
+        <el-option label="已启用" value="enabled" />
+        <el-option label="已停用" value="disabled" />
+      </el-select>
     </div>
 
-    <el-table :data="filteredStores" size="small" border style="width:100%;">
-      <el-table-column prop="country" label="国家" width="100" />
-      <el-table-column prop="platform" label="平台" width="120" />
-      <el-table-column prop="name" label="店铺名称" width="180" />
-      <el-table-column prop="login_account" label="登录账号" width="180" />
-      <el-table-column label="登录密码" width="160">
-        <template #default="scope">
-          <el-input v-model="scope.row.login_password" type="password" show-password size="small" disabled />
-        </template>
-      </el-table-column>
-      <el-table-column prop="phone" label="绑定手机号" width="150" />
-      <el-table-column prop="email" label="绑定邮箱" width="200" />
-      <el-table-column prop="remark" label="备注" width="200" />
-      <el-table-column prop="created_at" label="创建时间" width="180">
-        <template #default="scope">
-          {{ formatTime(scope.row.created_at) }}
-        </template>
-      </el-table-column>
-      <el-table-column label="状态" width="120">
-        <template #default="scope">
-          <el-switch
-            v-model="scope.row.is_blocked"
-            :active-value="false"
-            :inactive-value="true"
-            @change="onToggleBlocked(scope.row)"
-          />
-        </template>
-      </el-table-column>
-      <el-table-column v-if="isSuperAdmin" label="操作" width="220">
-        <template #default="scope">
-          <el-button type="primary" link size="small" @click="onEdit(scope.row)">编辑</el-button>
-          <el-button type="danger" link size="small" @click="onDelete(scope.row)">删除</el-button>
-          <el-button type="warning" link size="small" @click="onOpenAuth(scope.row)">授权</el-button>
-        </template>
-      </el-table-column>
-    </el-table>
+    <div v-if="showEnabledSection" style="margin-bottom:14px;">
+      <div style="font-size:13px; color:#606266; margin:4px 0 8px;">已启用店铺（{{ filteredEnabledStores.length }}）</div>
+      <el-table :data="filteredEnabledStores" size="small" border table-layout="auto" class="shop-table" style="width:100%;">
+        <el-table-column prop="country" label="国家" min-width="90" show-overflow-tooltip />
+        <el-table-column prop="platform" label="平台" min-width="90" show-overflow-tooltip />
+        <el-table-column prop="name" label="店铺名称" min-width="100" show-overflow-tooltip />
+        <el-table-column prop="login_account" label="登录账号" min-width="120" show-overflow-tooltip />
+        <el-table-column v-if="isSuperAdmin" label="登录密码" min-width="120" show-overflow-tooltip>
+          <template #default="scope">
+            <span>{{ scope.row.login_password || '-' }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="phone" label="绑定手机号" min-width="110" show-overflow-tooltip />
+        <el-table-column prop="email" label="绑定邮箱" min-width="140" show-overflow-tooltip />
+        <el-table-column label="负责人" min-width="120" show-overflow-tooltip>
+          <template #default="scope">
+            {{ ownerText(scope.row) }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="remark" label="备注" min-width="120" show-overflow-tooltip />
+        <el-table-column prop="created_at" label="创建时间" min-width="140" show-overflow-tooltip>
+          <template #default="scope">
+            {{ formatTime(scope.row.created_at) }}
+          </template>
+        </el-table-column>
+        <el-table-column v-if="isSuperAdmin" label="状态" min-width="80">
+          <template #default="scope">
+            <el-switch
+              v-model="scope.row.is_blocked"
+              :active-value="false"
+              :inactive-value="true"
+              @change="onToggleBlocked(scope.row)"
+            />
+          </template>
+        </el-table-column>
+        <el-table-column v-if="isSuperAdmin" label="操作" min-width="150">
+          <template #default="scope">
+            <div class="op-actions">
+              <el-button type="primary" link size="small" @click="onEdit(scope.row)">编辑</el-button>
+              <el-button type="danger" link size="small" @click="onDelete(scope.row)">删除</el-button>
+              <el-button type="warning" link size="small" @click="onOpenAuth(scope.row)">授权</el-button>
+            </div>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
+
+    <div v-if="showDisabledSection">
+      <div style="font-size:13px; color:#606266; margin:4px 0 8px;">已停用店铺（{{ filteredDisabledStores.length }}）</div>
+      <el-table :data="filteredDisabledStores" size="small" border table-layout="auto" class="shop-table" style="width:100%;">
+        <el-table-column prop="country" label="国家" min-width="90" show-overflow-tooltip />
+        <el-table-column prop="platform" label="平台" min-width="90" show-overflow-tooltip />
+        <el-table-column prop="name" label="店铺名称" min-width="100" show-overflow-tooltip />
+        <el-table-column prop="login_account" label="登录账号" min-width="120" show-overflow-tooltip />
+        <el-table-column v-if="isSuperAdmin" label="登录密码" min-width="120" show-overflow-tooltip>
+          <template #default="scope">
+            <span>{{ scope.row.login_password || '-' }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="phone" label="绑定手机号" min-width="110" show-overflow-tooltip />
+        <el-table-column prop="email" label="绑定邮箱" min-width="140" show-overflow-tooltip />
+        <el-table-column label="负责人" min-width="120" show-overflow-tooltip>
+          <template #default="scope">
+            {{ ownerText(scope.row) }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="remark" label="备注" min-width="120" show-overflow-tooltip />
+        <el-table-column prop="created_at" label="创建时间" min-width="140" show-overflow-tooltip>
+          <template #default="scope">
+            {{ formatTime(scope.row.created_at) }}
+          </template>
+        </el-table-column>
+        <el-table-column v-if="isSuperAdmin" label="状态" min-width="80">
+          <template #default="scope">
+            <el-switch
+              v-model="scope.row.is_blocked"
+              :active-value="false"
+              :inactive-value="true"
+              @change="onToggleBlocked(scope.row)"
+            />
+          </template>
+        </el-table-column>
+        <el-table-column v-if="isSuperAdmin" label="操作" min-width="150">
+          <template #default="scope">
+            <div class="op-actions">
+              <el-button type="primary" link size="small" @click="onEdit(scope.row)">编辑</el-button>
+              <el-button type="danger" link size="small" @click="onDelete(scope.row)">删除</el-button>
+              <el-button type="warning" link size="small" @click="onOpenAuth(scope.row)">授权</el-button>
+            </div>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
+
+    <el-empty v-if="!showEnabledSection && !showDisabledSection" description="暂无符合筛选条件的店铺" />
   </el-card>
 
   <!-- 店铺授权对话框，仅超级管理员使用 -->
@@ -158,6 +223,7 @@ const props = defineProps({
 })
 
 const stores = ref([])
+const allStores = ref([])
 // 国家默认印尼，is_blocked 默认 false（未封禁）
 const form = ref({ id: 0, platform: '', country: '印尼', name: '', login_account: '', login_password: '', phone: '', email: '', remark: '', is_blocked: false })
 const msg = ref('')
@@ -171,12 +237,13 @@ const authUserIds = ref([])
 const isSuperAdmin = computed(() => props.currentUser && props.currentUser.role === 'superadmin')
 
 // 国家筛选与动态国家列表
-const selectedCountry = ref('全部')
+const selectedCountry = ref('印尼')
+const selectedStatus = ref('enabled')
 const countries = computed(() => {
   const set = new Set()
-  stores.value.forEach((s) => { if (s && s.country) set.add(s.country) })
+  allStores.value.forEach((s) => { if (s && s.country) set.add(s.country) })
   // Ensure commonly used countries are present in the list
-  const required = ['菲律宾', '马来西亚']
+  const required = ['菲律宾', '印尼', '马来西亚']
   required.forEach(r => set.add(r))
   const arr = Array.from(set).sort()
   if (arr.length === 0) return ['菲律宾', '印尼', '马来西亚', '其他']
@@ -189,13 +256,27 @@ const countriesForForm = computed(() => {
 })
 
 const filteredStores = computed(() => {
-  const list = (!selectedCountry.value || selectedCountry.value === '全部') ? (stores.value || []) : (stores.value || []).filter((s) => s && s.country === selectedCountry.value)
-  return (list || []).slice().sort((a, b) => {
+  return (stores.value || []).slice().sort((a, b) => {
     const an = (a && a.name) ? String(a.name) : ''
     const bn = (b && b.name) ? String(b.name) : ''
     return an.localeCompare(bn, 'zh-CN', { numeric: true })
   })
 })
+
+const filteredEnabledStores = computed(() => {
+  const base = filteredStores.value || []
+  if (selectedStatus.value === 'disabled') return []
+  return base.filter((s) => !s?.is_blocked)
+})
+
+const filteredDisabledStores = computed(() => {
+  const base = filteredStores.value || []
+  if (selectedStatus.value === 'enabled') return []
+  return base.filter((s) => Boolean(s?.is_blocked))
+})
+
+const showEnabledSection = computed(() => filteredEnabledStores.value.length > 0)
+const showDisabledSection = computed(() => filteredDisabledStores.value.length > 0)
 
 // 在输入绑定邮箱时，如果只输入了前缀、不包含 @，自动补全为 xxx@radiant-ec.com
 watch(
@@ -209,6 +290,16 @@ watch(
   }
 )
 
+
+function ownerText(row) {
+  const names = Array.isArray(row?.user_names) ? row.user_names.filter(Boolean) : []
+  if (names.length > 0) return names.join("、")
+  const ids = Array.isArray(row?.user_ids) ? row.user_ids.filter(Boolean) : []
+  if (ids.length === 0) return "未授权"
+  const userMap = new Map((users.value || []).map((u) => [u.id, u.username]))
+  return ids.map((id) => userMap.get(id) || `用户${id}`).join("、")
+}
+
 function formatTime(t) {
   if (!t) return ''
   const d = new Date(t)
@@ -217,26 +308,51 @@ function formatTime(t) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-async function load() {
+function normalizeStores(items) {
+  const mapped = (items || []).map((s) => ({
+    ...s,
+    is_blocked: s === null || s === undefined ? false : (s.is_blocked === true || s.is_blocked === 'true' || s.is_blocked === 1 || s.is_blocked === '1')
+  }))
+  mapped.sort((a, b) => {
+    const an = (a && a.name) ? String(a.name) : ''
+    const bn = (b && b.name) ? String(b.name) : ''
+    return an.localeCompare(bn, 'zh-CN', { numeric: true })
+  })
+  return mapped
+}
+
+function buildShopParams() {
+  const params = {}
+  if (selectedCountry.value && selectedCountry.value !== '全部') {
+    params.country = selectedCountry.value
+  }
+  if (selectedStatus.value && selectedStatus.value !== 'all') {
+    params.status = selectedStatus.value
+  }
+  return params
+}
+
+async function loadAllStores() {
   try {
     const res = await axios.get('/api/shops')
-    const items = res.data?.items || []
-    // 规范 is_blocked 为布尔，兼容 0/1/'0'/'1'/'true'/true
-    const mapped = items.map((s) => ({
-      ...s,
-      is_blocked: s === null || s === undefined ? false : (s.is_blocked === true || s.is_blocked === 'true' || s.is_blocked === 1 || s.is_blocked === '1')
-    }))
-    // 按店铺名称排序（启用 numeric 以获得自然数值排序，如 X9 在 X13 之前）
-    mapped.sort((a, b) => {
-      const an = (a && a.name) ? String(a.name) : ''
-      const bn = (b && b.name) ? String(b.name) : ''
-      return an.localeCompare(bn, 'zh-CN', { numeric: true })
-    })
-    stores.value = mapped
+    allStores.value = normalizeStores(res.data?.items || [])
+  } catch (e) {
+    allStores.value = []
+  }
+}
+
+async function load() {
+  try {
+    const res = await axios.get('/api/shops', { params: buildShopParams() })
+    stores.value = normalizeStores(res.data?.items || [])
   } catch (e) {
     stores.value = []
   }
 }
+
+watch([selectedCountry, selectedStatus], () => {
+  load()
+})
 
 function onReset() {
   form.value = { id: 0, platform: '', country: '印尼', name: '', login_account: '', login_password: '', phone: '', email: '', remark: '', is_blocked: false }
@@ -246,7 +362,7 @@ function onReset() {
 async function loadUsers() {
   if (!isSuperAdmin.value) return
   try {
-    const res = await axios.get('/api/users')
+    const res = await axios.get('/api/user-options')
     users.value = res.data || []
   } catch {
     users.value = []
@@ -262,6 +378,7 @@ async function onSubmit() {
     msg.value = form.value.id ? '保存成功' : '新增成功'
     msgOk.value = true
     onReset()
+    await loadAllStores()
     await load()
     return res
   } catch (e) {
@@ -273,10 +390,8 @@ async function onSubmit() {
 async function onToggleBlocked(row) {
   if (!row || !row.id) return
   try {
-    // 在本地开发环境下自动带上调试绕过头，便于未登录时测试（生产请勿开启）
-    const devBypass = (typeof window !== 'undefined') && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-    const opts = devBypass ? { headers: { 'X-Bypass-Admin': '1' } } : {}
-    await axios.post('/api/shops', { ...row, is_blocked: Boolean(row.is_blocked) }, opts)
+    await axios.post('/api/shops', { ...row, is_blocked: Boolean(row.is_blocked) })
+    await loadAllStores()
     await load()
   } catch (e) {
     const status = e?.response?.status
@@ -307,6 +422,7 @@ async function onDelete(row) {
   try {
     await axios.delete(`/api/shops/${row.id}`)
     ElMessage.success('删除成功')
+    await loadAllStores()
     await load()
   } catch (e) {
     ElMessage.error(e?.response?.data?.error || e?.message || '删除失败')
@@ -332,16 +448,48 @@ async function onSaveAuth() {
     await axios.post(`/api/shops/${authStore.value.id}/users`, { user_ids: authUserIds.value })
     ElMessage.success('授权已保存')
     authDialogVisible.value = false
+    await loadAllStores()
+    await load()
   } catch (e) {
     ElMessage.error(e?.response?.data?.error || e?.message || '保存授权失败')
   }
 }
 
 onMounted(() => {
+  loadAllStores()
   load()
   loadUsers()
 })
 </script>
 
 <style scoped>
+.shop-table {
+  width: 100%;
+}
+
+.op-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 6px;
+}
+
+@media (max-width: 992px) {
+  .shop-table :deep(.el-table__cell) {
+    padding: 6px 4px;
+    font-size: 12px;
+  }
+
+  .shop-table :deep(.el-button--small) {
+    padding: 2px 4px;
+  }
+}
+
+@media (max-width: 768px) {
+  .shop-table :deep(.cell) {
+    white-space: normal;
+    word-break: break-word;
+    line-height: 1.35;
+  }
+}
 </style>

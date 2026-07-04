@@ -113,18 +113,21 @@ func main() {
 		authGroup := api.Group("")
 		authGroup.Use(handlers.AuthMiddleware())
 		authGroup.GET("/me", handlers.Me())
+		authGroup.GET("/user-options", handlers.ListUserOptions(gdb))
 		authGroup.POST("/notify/wecom/today-orders", handlers.NotifyWecomTodayOrders(gdb))
 		authGroup.GET("/dashboard/home", handlers.HomeDashboard(gdb))
 
-		// 用户与角色管理（仅超级管理员）
+		// 用户与角色管理（具备 users 权限或超级管理员）
 		users := api.Group("/users")
-		users.Use(handlers.AuthMiddleware(), handlers.RequireRole("superadmin"))
+		users.Use(handlers.AuthMiddleware(), handlers.RequirePermission("users"))
 		users.GET("", handlers.ListUsers(gdb))
 		users.POST("", handlers.CreateUser(gdb))
 		// 注意这里的路径需要以斜杠开头，才能匹配 /api/users/:id/role 这样的请求
 		users.PUT("/:id/role", handlers.UpdateUserRole(gdb))
 		users.PUT("/:id/permissions", handlers.UpdateUserPermissions(gdb))
 		users.PUT("/:id/password", handlers.UpdateUserPassword(gdb))
+		users.PUT("/:id/status", handlers.UpdateUserStatus(gdb))
+		users.DELETE("/:id", handlers.DeleteUser(gdb))
 
 		// 订单与结算相关接口需要登录，用于按用户过滤
 		authGroup.POST("/order", handlers.PostOrder(gdb))
@@ -180,6 +183,13 @@ func main() {
 		nav.GET("", handlers.ListNavLinks(gdb))
 		nav.POST("", handlers.SaveNavLink(gdb))
 		nav.DELETE(":id", handlers.DeleteNavLink(gdb))
+
+		// 退货管理（需登录，按用户隔离）
+		returns := api.Group("/returns")
+		returns.Use(handlers.AuthMiddleware())
+		returns.GET("", handlers.ListReturns(gdb))
+		returns.POST("", handlers.SaveReturn(gdb))
+		returns.DELETE(":id", handlers.DeleteReturn(gdb))
 
 		// 新增统计接口
 		api.GET("/stats/hourly", handlers.HourlyStats(gdb))

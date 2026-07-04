@@ -12,20 +12,42 @@ services:
     command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
     volumes:
       - db-data:/var/lib/mysql
+      - ./docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
-  app:
-    build: .
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
     restart: always
     ports:
       - "8081:8080"
     environment:
-      # 与 README 中示例一致的 DSN，指向上面的 db 服务
       MYSQL_DSN: "appuser:app123456@tcp(db:3306)/ordercount?charset=utf8mb4&parseTime=True&loc=Local"
-      # 生产模式 + 强制使用自定义 JWT 密钥
       APP_ENV: "prod"
+      GIN_MODE: "release"
       JWT_SECRET: "jN2p5uC8!kL0xQ7zR9tV3bY6wH1@eF4"
+    volumes:
+      - ./uploads:/app/uploads
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    restart: always
+    ports:
+      - "8080:80"
+    depends_on:
+      backend:
+        condition: service_started
 
 volumes:
   db-data:

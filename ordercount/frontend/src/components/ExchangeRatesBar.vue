@@ -70,7 +70,7 @@ async function loadRates() {
       IDR: res.data?.rates?.IDR || 0,
       MYR: res.data?.rates?.MYR || 0,
     }
-    lastUpdated.value = new Date().toLocaleString()
+    lastUpdated.value = new Date().toLocaleString('zh-CN')
   } catch (e) {
     if (!rates.value.PHP && !rates.value.IDR && !rates.value.MYR) {
       error.value = '汇率获取失败，请稍后重试'

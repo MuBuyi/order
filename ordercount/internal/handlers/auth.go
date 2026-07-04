@@ -35,6 +35,7 @@ type UserClaims struct {
     UserID   uint   `json:"uid"`
     Username string `json:"username"`
     Role     string `json:"role"`
+    Permissions string `json:"permissions"`
     jwt.RegisteredClaims
 }
 
@@ -56,6 +57,42 @@ func RequireRole(roles ...string) gin.HandlerFunc {
             return
         }
         c.Next()
+    }
+}
+
+// RequirePermission 要求当前登录用户具备指定页面权限之一（超级管理员默认放行）
+func RequirePermission(perms ...string) gin.HandlerFunc {
+    allowed := make(map[string]struct{}, len(perms))
+    for _, p := range perms {
+        p = strings.ToLower(strings.TrimSpace(p))
+        if p != "" {
+            allowed[p] = struct{}{}
+        }
+    }
+
+    return func(c *gin.Context) {
+        roleVal, _ := c.Get("role")
+        roleStr, _ := roleVal.(string)
+        roleStr = strings.ToLower(strings.TrimSpace(roleStr))
+        if roleStr == "superadmin" {
+            c.Next()
+            return
+        }
+
+        rawPerms, _ := c.Get("permissions")
+        permStr, _ := rawPerms.(string)
+        for _, p := range strings.Split(permStr, ",") {
+            p = strings.ToLower(strings.TrimSpace(p))
+            if p == "" {
+                continue
+            }
+            if _, ok := allowed[p]; ok {
+                c.Next()
+                return
+            }
+        }
+
+        c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "无权限"})
     }
 }
 
@@ -85,6 +122,10 @@ func Login(db *gorm.DB) gin.HandlerFunc {
             c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"})
             return
         }
+        if !u.IsActive {
+            c.JSON(http.StatusForbidden, gin.H{"error": "账号已停用，请联系超级管理员"})
+            return
+        }
 
         // 生成 token
         now := time.Now()
@@ -92,6 +133,7 @@ func Login(db *gorm.DB) gin.HandlerFunc {
             UserID:   u.ID,
             Username: u.Username,
             Role:     u.Role,
+            Permissions: u.Permissions,
             RegisteredClaims: jwt.RegisteredClaims{
                 ExpiresAt: jwt.NewNumericDate(now.Add(24 * time.Hour)),
                 IssuedAt:  jwt.NewNumericDate(now),
@@ -110,6 +152,7 @@ func Login(db *gorm.DB) gin.HandlerFunc {
                 "id":          u.ID,
                 "username":    u.Username,
                 "role":        u.Role,
+                "is_active":   u.IsActive,
                 "permissions": u.Permissions,
             },
         })
@@ -142,6 +185,7 @@ func AuthMiddleware() gin.HandlerFunc {
         c.Set("userID", claims.UserID)
         c.Set("username", claims.Username)
         c.Set("role", claims.Role)
+        c.Set("permissions", claims.Permissions)
 
         c.Next()
     }

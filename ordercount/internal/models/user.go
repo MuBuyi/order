@@ -9,6 +9,7 @@ type User struct {
     Username     string    `gorm:"size:100;uniqueIndex" json:"username"`
     PasswordHash string    `gorm:"size:255" json:"-"`
     Role         string    `gorm:"size:50" json:"role"`
+    IsActive     bool      `gorm:"not null;default:true" json:"is_active"`
     // 逗号分隔的页面权限，例如: "settlement,product"
     Permissions  string    `gorm:"size:255" json:"permissions"`
     CreatedAt    time.Time `json:"created_at"`

@@ -7,6 +7,7 @@ import "time"
 type NavLink struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	UserID    uint      `gorm:"index" json:"user_id"`
+	Category  string    `gorm:"size:100;index" json:"category"` // 分类，便于按类别筛选和快速导航
 	Title     string    `gorm:"size:200" json:"title"`   // 站点名称
 	URL       string    `gorm:"size:500" json:"url"`     // 目标网址
 	Account   string    `gorm:"size:200" json:"account"` // 登录账户名或备注

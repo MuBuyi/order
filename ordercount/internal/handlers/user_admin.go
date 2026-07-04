@@ -19,9 +19,44 @@ var allowedRoles = map[string]bool{
 }
 
 var allowedPerms = map[string]bool{
+    "stats":      true,
     "settlement": true,
+    "returns":    true,
     "product":    true,
     "shop":       true,
+    "exchange":   true,
+    "charts":     true,
+    "nav-helper": true,
+    "users":      true,
+}
+
+// ListUserOptions 返回可用于前端下拉的人名选项（登录即可访问）
+func ListUserOptions(db *gorm.DB) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        var users []models.User
+        if err := db.Order("created_at asc").Find(&users).Error; err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+            return
+        }
+
+        type item struct {
+            ID       uint   `json:"id"`
+            Username string `json:"username"`
+        }
+
+        res := make([]item, 0, len(users))
+        for _, u := range users {
+            if strings.TrimSpace(u.Username) == "" {
+                continue
+            }
+            res = append(res, item{
+                ID:       u.ID,
+                Username: u.Username,
+            })
+        }
+
+        c.JSON(http.StatusOK, res)
+    }
 }
 
 // ListUsers 列出所有用户（仅超级管理员）
@@ -37,6 +72,7 @@ func ListUsers(db *gorm.DB) gin.HandlerFunc {
             ID          uint     `json:"id"`
             Username    string   `json:"username"`
             Role        string   `json:"role"`
+            IsActive    bool     `json:"is_active"`
             Permissions []string `json:"permissions"`
             CreatedAt   string   `json:"created_at"`
         }
@@ -55,6 +91,7 @@ func ListUsers(db *gorm.DB) gin.HandlerFunc {
                 ID:          u.ID,
                 Username:    u.Username,
                 Role:        u.Role,
+                IsActive:    u.IsActive,
                 Permissions: perms,
                 CreatedAt:   u.CreatedAt.Format("2006-01-02 15:04"),
             })
@@ -112,6 +149,7 @@ func CreateUser(db *gorm.DB) gin.HandlerFunc {
             Username:     body.Username,
             PasswordHash: string(hash),
             Role:         body.Role,
+            IsActive:     true,
             Permissions:  strings.Join(perms, ","),
         }
         if err := db.Create(&u).Error; err != nil {
@@ -263,6 +301,132 @@ func UpdateUserPassword(db *gorm.DB) gin.HandlerFunc {
 
         user.PasswordHash = string(hash)
         if err := db.Save(&user).Error; err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+            return
+        }
+
+        c.JSON(http.StatusOK, gin.H{"ok": true})
+    }
+}
+
+// UpdateUserStatus 启用或停用用户（仅超级管理员）
+func UpdateUserStatus(db *gorm.DB) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        roleVal, _ := c.Get("role")
+        roleStr, _ := roleVal.(string)
+        if strings.ToLower(strings.TrimSpace(roleStr)) != "superadmin" {
+            c.JSON(http.StatusForbidden, gin.H{"error": "仅超级管理员可以修改用户状态"})
+            return
+        }
+
+        idStr := c.Param("id")
+        id, err := strconv.Atoi(idStr)
+        if err != nil || id <= 0 {
+            c.JSON(http.StatusBadRequest, gin.H{"error": "无效的用户ID"})
+            return
+        }
+
+        var body struct {
+            IsActive bool `json:"is_active"`
+        }
+        if err := c.ShouldBindJSON(&body); err != nil {
+            c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+            return
+        }
+
+        var user models.User
+        if err := db.First(&user, id).Error; err != nil {
+            if err == gorm.ErrRecordNotFound {
+                c.JSON(http.StatusNotFound, gin.H{"error": "用户不存在"})
+            } else {
+                c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+            }
+            return
+        }
+
+        if curIDVal, ok := c.Get("userID"); ok {
+            if curID, ok2 := curIDVal.(uint); ok2 && curID == user.ID {
+                c.JSON(http.StatusBadRequest, gin.H{"error": "不能修改当前登录用户状态"})
+                return
+            }
+        }
+
+        if !body.IsActive && strings.ToLower(strings.TrimSpace(user.Role)) == "superadmin" {
+            var cnt int64
+            if err := db.Model(&models.User{}).Where("role = ? AND is_active = ?", "superadmin", true).Count(&cnt).Error; err != nil {
+                c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+                return
+            }
+            if cnt <= 1 {
+                c.JSON(http.StatusBadRequest, gin.H{"error": "至少保留一个启用中的超级管理员"})
+                return
+            }
+        }
+
+        user.IsActive = body.IsActive
+        if err := db.Save(&user).Error; err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+            return
+        }
+
+        c.JSON(http.StatusOK, gin.H{"ok": true})
+    }
+}
+
+// DeleteUser 删除用户（仅超级管理员）
+func DeleteUser(db *gorm.DB) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        roleVal, _ := c.Get("role")
+        roleStr, _ := roleVal.(string)
+        if strings.ToLower(strings.TrimSpace(roleStr)) != "superadmin" {
+            c.JSON(http.StatusForbidden, gin.H{"error": "仅超级管理员可以删除用户"})
+            return
+        }
+
+        idStr := c.Param("id")
+        id, err := strconv.Atoi(idStr)
+        if err != nil || id <= 0 {
+            c.JSON(http.StatusBadRequest, gin.H{"error": "无效的用户ID"})
+            return
+        }
+
+        var user models.User
+        if err := db.First(&user, id).Error; err != nil {
+            if err == gorm.ErrRecordNotFound {
+                c.JSON(http.StatusNotFound, gin.H{"error": "用户不存在"})
+            } else {
+                c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+            }
+            return
+        }
+
+        // 防止删除当前登录用户，避免误锁死
+        if curIDVal, ok := c.Get("userID"); ok {
+            if curID, ok2 := curIDVal.(uint); ok2 && curID == user.ID {
+                c.JSON(http.StatusBadRequest, gin.H{"error": "不能删除当前登录用户"})
+                return
+            }
+        }
+
+        // 防止删除最后一个超级管理员
+        if strings.ToLower(strings.TrimSpace(user.Role)) == "superadmin" {
+            var cnt int64
+            if err := db.Model(&models.User{}).Where("role = ?", "superadmin").Count(&cnt).Error; err != nil {
+                c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+                return
+            }
+            if cnt <= 1 {
+                c.JSON(http.StatusBadRequest, gin.H{"error": "至少保留一个超级管理员"})
+                return
+            }
+        }
+
+        // 先删除店铺授权关系，再删除用户
+        if err := db.Where("user_id = ?", user.ID).Delete(&models.StoreUser{}).Error; err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+            return
+        }
+        if err := db.Delete(&user).Error; err != nil {
             c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
             return
         }

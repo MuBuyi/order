@@ -2,6 +2,7 @@ package handlers
 
 import (
     "net/http"
+    "strings"
 
     "github.com/gin-gonic/gin"
     "gorm.io/gorm"
@@ -9,18 +10,33 @@ import (
     "ordercount/internal/models"
 )
 
+type navLinkItem struct {
+	models.NavLink
+	CreatorUsername string `json:"creator_username"`
+	CreatorRole     string `json:"creator_role"`
+}
+
 // ListNavLinks 列出当前登录用户的导航链接
 func ListNavLinks(db *gorm.DB) gin.HandlerFunc {
     return func(c *gin.Context) {
         uidVal, _ := c.Get("userID")
         userID, _ := uidVal.(uint)
+        roleVal, _ := c.Get("role")
+        roleStr, _ := roleVal.(string)
         if userID == 0 {
             c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
             return
         }
 
-        var links []models.NavLink
-        if err := db.Where("user_id = ?", userID).Order("created_at desc").Find(&links).Error; err != nil {
+        query := db.Model(&models.NavLink{}).
+			Select("nav_links.*, users.username as creator_username, users.role as creator_role").
+			Joins("LEFT JOIN users ON users.id = nav_links.user_id")
+        if strings.TrimSpace(strings.ToLower(roleStr)) != "superadmin" {
+            query = query.Where("nav_links.user_id = ?", userID)
+        }
+
+        var links []navLinkItem
+        if err := query.Order("nav_links.created_at desc").Scan(&links).Error; err != nil {
             c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
             return
         }
@@ -33,12 +49,15 @@ func SaveNavLink(db *gorm.DB) gin.HandlerFunc {
     return func(c *gin.Context) {
         uidVal, _ := c.Get("userID")
         userID, _ := uidVal.(uint)
+        roleVal, _ := c.Get("role")
+        roleStr, _ := roleVal.(string)
         if userID == 0 {
             c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
             return
         }
 
         var body struct {
+            Category string `json:"category"`
             ID      uint   `json:"id"`
             Title   string `json:"title"`
             URL     string `json:"url"`
@@ -54,21 +73,27 @@ func SaveNavLink(db *gorm.DB) gin.HandlerFunc {
             return
         }
 
+        category := strings.TrimSpace(body.Category)
+
         var link models.NavLink
         if body.ID != 0 {
-            if err := db.Where("id = ? AND user_id = ?", body.ID, userID).First(&link).Error; err != nil {
+            q := db
+            if strings.TrimSpace(strings.ToLower(roleStr)) != "superadmin" {
+                q = q.Where("user_id = ?", userID)
+            }
+            if err := q.First(&link, body.ID).Error; err != nil {
                 if err == gorm.ErrRecordNotFound {
-                    // 记录不存在则当作新建
-                    link = models.NavLink{UserID: userID}
-                } else {
-                    c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+                    c.JSON(http.StatusNotFound, gin.H{"error": "link not found"})
                     return
                 }
+                c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+                return
             }
         } else {
             link.UserID = userID
         }
 
+        link.Category = category
         link.Title = body.Title
         link.URL = body.URL
         link.Account = body.Account
@@ -95,6 +120,8 @@ func DeleteNavLink(db *gorm.DB) gin.HandlerFunc {
     return func(c *gin.Context) {
         uidVal, _ := c.Get("userID")
         userID, _ := uidVal.(uint)
+        roleVal, _ := c.Get("role")
+        roleStr, _ := roleVal.(string)
         if userID == 0 {
             c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
             return
@@ -106,7 +133,12 @@ func DeleteNavLink(db *gorm.DB) gin.HandlerFunc {
             return
         }
 
-        if err := db.Where("id = ? AND user_id = ?", id, userID).Delete(&models.NavLink{}).Error; err != nil {
+        q := db.Where("id = ?", id)
+        if strings.TrimSpace(strings.ToLower(roleStr)) != "superadmin" {
+            q = q.Where("user_id = ?", userID)
+        }
+
+        if err := q.Delete(&models.NavLink{}).Error; err != nil {
             c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
             return
         }

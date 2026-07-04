@@ -117,6 +117,12 @@
       </el-table-column>
       <el-table-column prop="category" label="类别" width="140" />
       <el-table-column prop="account" label="账号" width="160" />
+      <el-table-column v-if="isSuperAdmin" label="添加人" width="180">
+        <template #default="scope">
+          <span>{{ scope.row.creator_username || '未知' }}</span>
+          <span style="color:#909399;">{{ scope.row.creator_role ? '（' + scope.row.creator_role + '）' : '' }}</span>
+        </template>
+      </el-table-column>
       <el-table-column prop="remark" label="备注" />
       <el-table-column label="操作" width="140">
         <template #default="scope">
@@ -130,8 +136,14 @@
 
 <script setup>
 import { ref, onMounted, computed } from 'vue'
+import axios from 'axios'
 
-const STORAGE_KEY = 'nav-helper-links'
+const props = defineProps({
+  currentUser: {
+    type: Object,
+    default: null,
+  },
+})
 
 const items = ref([])
 const loading = ref(false)
@@ -166,18 +178,13 @@ const quickLinks = computed(() => {
   return items.value.filter(it => it.category === quickCategory.value)
 })
 
-function load() {
+const isSuperAdmin = computed(() => props.currentUser && props.currentUser.role === 'superadmin')
+
+async function load() {
   loading.value = true
   try {
-    if (typeof window !== 'undefined') {
-      const raw = window.localStorage.getItem(STORAGE_KEY)
-      if (raw) {
-        const list = JSON.parse(raw)
-        if (Array.isArray(list)) {
-          items.value = list
-        }
-      }
-    }
+    const { data } = await axios.get('/api/nav_links')
+    items.value = Array.isArray(data) ? data : []
   } catch (e) {
     items.value = []
   } finally {
@@ -191,22 +198,16 @@ function onReset() {
 
 async function onSave() {
   if (!form.value.title || !form.value.url) return
-  const payload = { ...form.value }
-  // 为本地数据生成一个简单的自增 id
-  if (!payload.id) {
-    const maxId = items.value.reduce((m, it) => Math.max(m, it.id || 0), 0)
-    payload.id = maxId + 1
+  const payload = {
+    id: form.value.id || 0,
+    category: form.value.category,
+    title: form.value.title,
+    url: form.value.url,
+    account: form.value.account,
+    remark: form.value.remark,
   }
-  const idx = items.value.findIndex(it => it.id === payload.id)
-  if (idx >= 0) {
-    items.value.splice(idx, 1, payload)
-  } else {
-    items.value.unshift(payload)
-  }
-  // 持久化到 localStorage
-  if (typeof window !== 'undefined') {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(items.value))
-  }
+  await axios.post('/api/nav_links', payload)
+  await load()
   onReset()
 }
 
@@ -222,10 +223,8 @@ function editRow(row) {
 }
 
 async function removeRow(row) {
-  items.value = items.value.filter(it => it.id !== row.id)
-  if (typeof window !== 'undefined') {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(items.value))
-  }
+  await axios.delete(`/api/nav_links/${row.id}`)
+  await load()
   if (form.value.id === row.id) {
     onReset()
   }

@@ -28,7 +28,7 @@
       <el-table-column prop="country" label="国家" width="100" />
       <el-table-column prop="platform" label="平台" width="120" />
       <el-table-column prop="name" label="店铺名称" width="200" />
-      <el-table-column label="每天广告费用(本国货币)">
+      <el-table-column label="每天广告费用(本国货币)" width="220">
         <template #default="scope">
           <template v-if="isSuperAdmin">
             <div style="display:flex;align-items:center;">
@@ -37,7 +37,7 @@
                 :min="0"
                 :step="0.01"
                 controls-position="right"
-                style="width:140px;"
+                style="width:110px;"
               />
               <el-button
                 type="primary"
@@ -63,12 +63,12 @@
           </template>
         </template>
       </el-table-column>
-      <el-table-column label="折算成人民币" width="150">
+      <el-table-column label="折算成人民币" width="140">
         <template #default="scope">
           <span>￥{{ formatAdCostCny(scope.row) }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="140">
+      <el-table-column v-if="!isStaff" label="操作" width="140">
         <template #default="scope">
           <el-button type="primary" link size="small" @click="onShowDetail(scope.row)">
             查看详情
@@ -132,6 +132,10 @@ const detailVisible = ref(false)
 const detailStore = ref(null)
 
 const isSuperAdmin = computed(() => props.currentUser && props.currentUser.role === 'superadmin')
+const isStaff = computed(() => {
+  const role = String(props.currentUser?.role || '').trim().toLowerCase()
+  return role === 'staff' || role === 'employee'
+})
 
 function rebuildRows () {
   const map = statsMap.value || {}

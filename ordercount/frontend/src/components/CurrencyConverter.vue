@@ -119,7 +119,7 @@ async function loadRates() {
       labels.value = res.data.labels || {}
       if (!rates.value['CNY']) rates.value['CNY'] = 1
       if (!labels.value['CNY']) labels.value['CNY'] = '人民币'
-      lastUpdated.value = new Date().toLocaleString()
+      lastUpdated.value = new Date().toLocaleString('zh-CN')
     }
   } catch (e) {
     console.error('load rates error', e)
